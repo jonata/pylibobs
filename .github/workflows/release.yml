@@ -26,10 +26,11 @@ jobs:
           - os: ubuntu-latest
             target_os: linux
             target_arch: x86_64
-          - os: macos-13          # Intel
-            target_os: macos
-            target_arch: x86_64
-          - os: macos-14          # Apple Silicon
+          # Apple Silicon only — Apple stopped shipping Intel Macs in
+          # 2022 and GitHub's macos-13 (Intel) runners have multi-hour
+          # queue times. Intel users can still install pylibobs from
+          # sdist (which compiles fine on any macOS).
+          - os: macos-14
             target_os: macos
             target_arch: arm64
     steps:
