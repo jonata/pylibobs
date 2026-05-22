@@ -24,8 +24,15 @@ Existing options:
 
 ## License
 
-GPL v2 or later — inherited from libobs. Anything you build on top of pylibobs must also be
-GPL-compatible. The bundled libobs binaries shipped in the wheels are likewise GPLv2+.
+Copyright (C) 2026  Jonata Bolzan Loss and contributors.
+
+pylibobs is licensed under **GPL v2 or later**, inherited from libobs.
+See [LICENSE](LICENSE) for the full text.
+
+The published wheels bundle libobs's compiled binaries (also GPLv2+),
+so the wheel as distributed is covered by GPLv2+. Anything you build
+on top of pylibobs must be GPL-compatible if you redistribute it.
+Personal use carries no obligation.
 
 ---
 
