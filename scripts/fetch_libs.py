@@ -70,15 +70,17 @@ ASSET_PATTERNS: dict[tuple[str, str], dict] = {
         "verify_file": "obs.dll",
     },
     ("linux", "x86_64"): {
-        # The Ubuntu .deb gives us libobs.so.0 + plugins + data — but still
-        # links to system ffmpeg/qt. For a fully-self-contained Linux wheel,
-        # auditwheel-repair in CI bundles the rest.
+        # OBS's Ubuntu .deb installs under /usr/local/ (CMake's default
+        # CMAKE_INSTALL_PREFIX), not /usr/. Layout:
+        #   usr/local/lib/x86_64-linux-gnu/libobs.so.0
+        #   usr/local/lib/x86_64-linux-gnu/obs-plugins/*.so
+        #   usr/local/share/obs/libobs/*.effect        (shader effects)
+        #   usr/local/share/obs/obs-plugins/*/         (plugin data)
         "asset_re": r"OBS-Studio-[\d.]+-Ubuntu-[\d.]+-x86_64\.deb$",
         "kind": "deb",
         "extract": {
-            "usr/lib/x86_64-linux-gnu/":              "",
-            "usr/lib/x86_64-linux-gnu/obs-plugins/":  "obs-plugins/",
-            "usr/share/obs/":                         "data/",
+            "usr/local/lib/x86_64-linux-gnu/":  "",
+            "usr/local/share/obs/":             "data/",
         },
         "verify_file": "libobs.so.0",
     },
