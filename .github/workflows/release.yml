@@ -86,17 +86,13 @@ jobs:
       # for any glibc 2.31+ system (Ubuntu 20.04+, Debian 11+, RHEL 9+, …).
       - name: Re-tag Linux wheel as manylinux
         if: runner.os == 'Linux'
+        # `wheel tags --remove` deletes the original wheel and writes the
+        # retagged one into the same directory. No move dance needed.
         run: |
           pip install wheel
-          mkdir -p wheelhouse
-          for whl in dist/*.whl; do
-            python -m wheel tags \
-              --platform-tag manylinux_2_31_x86_64 \
-              --remove "$whl"
-            mv "${whl%.whl}"*manylinux*.whl wheelhouse/ 2>/dev/null || true
+          for whl in dist/*-linux_*.whl; do
+            python -m wheel tags --platform-tag manylinux_2_31_x86_64 --remove "$whl"
           done
-          rm -f dist/*.whl
-          mv wheelhouse/*.whl dist/
           ls -la dist/
         shell: bash
 
