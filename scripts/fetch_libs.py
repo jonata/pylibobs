@@ -314,7 +314,7 @@ def fetch_for(plat: str, arch: str, release: dict, cache: Path) -> bool:
         print(f"  [!] expected {verify} missing after extraction")
         return False
 
-    print(f"  ✓ {total} files in {dst}")
+    print(f"  OK: {total} files in {dst}")
     return True
 
 

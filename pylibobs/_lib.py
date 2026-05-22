@@ -7,6 +7,7 @@ Resolution order:
   3. ctypes.util.find_library("obs")
   4. Well-known OBS Studio install paths
 """
+from __future__ import annotations    # lazy-evaluated annotations (Py3.9 compat)
 
 import os
 import platform

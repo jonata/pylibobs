@@ -6,6 +6,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Force UTF-8 stdout/stderr everywhere — Windows runners default to cp1252.
+env:
+  PYTHONIOENCODING: "utf-8"
+  PYTHONUTF8: "1"
+
 jobs:
   # ------------------------------------------------------------------
   # Unit tests — pure-Python, mock the cffi layer. Fast.
@@ -57,21 +62,30 @@ jobs:
         run: python scripts/run_tests.py
 
   integration-linux:
-    name: Integration / Linux (system OBS)
+    name: Integration / Linux (bundled libobs)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install OBS Studio (provides libobs) + Xvfb
+      - name: Install runtime deps + Xvfb
+        # OBS 32's libobs.so.0 needs ffmpeg, x264, libpulse, libwayland, …
+        # The simplest way to get them all is to apt-install obs-studio
+        # (which pulls them in as dependencies) — we then override its
+        # libobs with the OBS 32 one we bundle via fetch_libs.py.
         run: |
           sudo apt-get update
-          sudo apt-get install -y obs-studio xvfb
+          sudo apt-get install -y obs-studio xvfb zstd
       - name: Install package
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
+          pip install zstandard            # for .deb data.tar.zst extraction
+      - name: Fetch bundled OBS 32 libobs.so.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/fetch_libs.py --platform linux --arch x86_64
       - name: Run integration tests under Xvfb
         run: |
           Xvfb :99 -screen 0 1920x1080x24 &
