@@ -1,0 +1,23 @@
+# Normalize line endings in the repo.
+# Text files use LF in the repo, native line endings in the working tree.
+* text=auto
+
+# Python / config files always LF (CI runners + tooling expect it)
+*.py     text eol=lf
+*.toml   text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.md     text eol=lf
+*.cfg    text eol=lf
+*.in     text eol=lf
+LICENSE  text eol=lf
+
+# Binary blobs that should never be touched
+*.dll    binary
+*.so     binary
+*.dylib  binary
+*.png    binary
+*.jpg    binary
+*.mkv    binary
+*.mp4    binary
+*.zip    binary

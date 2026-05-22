@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # ------------------------------------------------------------------
+  # Unit tests — pure-Python, mock the cffi layer. Fast.
+  # Runs on every supported Python on all 3 OSes.
+  # ------------------------------------------------------------------
+  unit:
+    name: Unit / ${{ matrix.os }} py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:     [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Run unit tests
+        run: pytest tests/unit -v
+
+  # ------------------------------------------------------------------
+  # Integration tests — exercise real libobs end-to-end.
+  # We download a fresh OBS release with fetch_libs.py, then run the
+  # whole suite with process isolation (libobs can't gracefully restart
+  # inside a single process — see scripts/run_tests.py).
+  # ------------------------------------------------------------------
+  integration-windows:
+    name: Integration / Windows (bundled libobs)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Fetch bundled libobs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/fetch_libs.py
+      - name: Run integration tests (process-isolated)
+        run: python scripts/run_tests.py
+
+  integration-linux:
+    name: Integration / Linux (system OBS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install OBS Studio (provides libobs) + Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y obs-studio xvfb
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Run integration tests under Xvfb
+        run: |
+          Xvfb :99 -screen 0 1920x1080x24 &
+          export DISPLAY=:99
+          sleep 2
+          pytest tests/integration -m integration -v

@@ -1,0 +1,19 @@
+# Files to ship in the sdist (in addition to the package itself).
+include LICENSE
+include README.md
+include pyproject.toml
+include setup.py
+include MANIFEST.in
+
+# Maintainer tools — kept in sdist so end-users can rebuild bundled libs
+# if they want to pin a different OBS version.
+recursive-include scripts *.py
+
+# The bundled libobs is intentionally NOT in the sdist — it's downloaded
+# at wheel-build time by CI. Excluded explicitly to keep the sdist small.
+prune pylibobs/_libs
+prune scripts/.fetch_cache
+
+# Test files don't ship in the installed package — they're only in the repo.
+prune tests
+prune examples

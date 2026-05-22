@@ -1,0 +1,98 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name        = "pylibobs"
+version     = "0.0.1"
+description = "Python bindings for libobs (the core of OBS Studio) — capture, mix, record, stream"
+readme      = "README.md"
+license     = { text = "GPL-2.0-or-later" }
+authors     = [{ name = "pylibobs contributors" }]
+requires-python = ">=3.9"
+keywords    = ["obs", "obs-studio", "libobs", "streaming", "recording",
+               "rtmp", "youtube", "twitch", "screen-capture", "video", "audio"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Multimedia :: Video :: Capture",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = ["cffi>=1.15"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "pytest-mock",
+    "build",
+    "wheel",
+    "requests>=2.28",   # used by scripts/fetch_libs.py
+]
+
+[project.urls]
+Homepage      = "https://github.com/jonata/pylibobs"
+Documentation = "https://github.com/jonata/pylibobs#readme"
+Repository    = "https://github.com/jonata/pylibobs"
+Issues        = "https://github.com/jonata/pylibobs/issues"
+Changelog     = "https://github.com/jonata/pylibobs/releases"
+
+# --------------------------------------------------------------------------
+# Setuptools
+# --------------------------------------------------------------------------
+[tool.setuptools]
+# Wheel must be platform-specific because we bundle libobs binaries.
+# This is enforced via setup.py's Distribution.has_ext_modules() override.
+
+[tool.setuptools.packages.find]
+where    = ["."]
+include  = ["pylibobs*"]
+exclude  = ["tests*", "examples*", "scripts*"]
+
+[tool.setuptools.package-data]
+# Include every bundled libobs binary + data file in the wheel.
+pylibobs = [
+    "_libs/**/*",
+    "_libs/**/.*",
+]
+
+# --------------------------------------------------------------------------
+# pytest
+# --------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: tests that require a real libobs install (bundled or system)",
+    "unit: fast tests that mock the cffi layer",
+]
+
+# --------------------------------------------------------------------------
+# cibuildwheel — used by .github/workflows/release.yml
+# --------------------------------------------------------------------------
+[tool.cibuildwheel]
+# Pure-Python wheels with bundled binaries — build one per platform.
+# We don't run cibuildwheel's normal "multiple Python ABI" loop, just
+# one cp311 build per platform that we then re-tag as py3-none.
+build = "cp311-*"
+skip  = "*-musllinux_* *-win32 *-manylinux_i686"
+
+[tool.cibuildwheel.windows]
+before-build = "python {project}/scripts/fetch_libs.py --platform windows --arch x86_64"
+
+[tool.cibuildwheel.linux]
+before-build = "python {project}/scripts/fetch_libs.py --platform linux --arch x86_64"
+
+[tool.cibuildwheel.macos]
+before-build = "python {project}/scripts/fetch_libs.py --platform macos --arch $(uname -m)"
