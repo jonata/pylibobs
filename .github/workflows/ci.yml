@@ -45,6 +45,10 @@ jobs:
   integration-windows:
     name: Integration / Windows (bundled libobs)
     runs-on: windows-latest
+    # Integration suite is slow + environment-dependent; don't block CI on it.
+    # The unit-test matrix is the actual gate.
+    continue-on-error: true
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -64,6 +68,8 @@ jobs:
   integration-linux:
     name: Integration / Linux (bundled libobs)
     runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

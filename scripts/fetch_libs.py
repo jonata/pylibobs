@@ -165,7 +165,42 @@ def _extract_zip_tree(zip_path: Path, src_prefix: str, dst: Path) -> int:
 
 
 def _extract_deb_tree(deb_path: Path, src_prefix: str, dst: Path) -> int:
-    """A .deb is an `ar` archive containing data.tar.{xz,gz,zst}."""
+    """Extract files under `src_prefix` from a .deb into `dst`.
+
+    Strategy:
+      1. If `dpkg-deb` is available (always on Debian/Ubuntu), use it —
+         it handles every data.tar.{xz,gz,zst} format correctly.
+      2. Otherwise fall back to a hand-rolled ar+tar parser.
+    """
+    if shutil.which("dpkg-deb"):
+        return _extract_deb_tree_dpkg(deb_path, src_prefix, dst)
+    return _extract_deb_tree_python(deb_path, src_prefix, dst)
+
+
+def _extract_deb_tree_dpkg(deb_path: Path, src_prefix: str, dst: Path) -> int:
+    """Use the system `dpkg-deb` tool — most reliable."""
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.check_call(["dpkg-deb", "-x", str(deb_path), tmp])
+        src_root = Path(tmp) / src_prefix.rstrip("/")
+        if not src_root.exists():
+            print(f"  [!] '{src_prefix}' not found in {deb_path.name}")
+            return 0
+        dst.mkdir(parents=True, exist_ok=True)
+        n = 0
+        for src in src_root.rglob("*"):
+            if not src.is_file():
+                continue
+            rel = src.relative_to(src_root)
+            out = dst / rel
+            out.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, out)
+            n += 1
+        return n
+
+
+def _extract_deb_tree_python(deb_path: Path, src_prefix: str, dst: Path) -> int:
+    """Hand-rolled .deb extractor — used when dpkg-deb isn't available.
+    A .deb is an `ar` archive containing data.tar.{xz,gz,zst}."""
     import io
     import tarfile
 
@@ -174,8 +209,8 @@ def _extract_deb_tree(deb_path: Path, src_prefix: str, dst: Path) -> int:
         if magic != b"!<arch>\n":
             raise RuntimeError(f"Not a valid .deb: {deb_path}")
 
-        data_blob: bytes | None = None
-        data_name: str | None = None
+        data_blob = None
+        data_name = None
         while True:
             header = f.read(60)
             if len(header) < 60:
@@ -193,7 +228,6 @@ def _extract_deb_tree(deb_path: Path, src_prefix: str, dst: Path) -> int:
     if not data_blob:
         raise RuntimeError(f"data.tar.* not found in {deb_path}")
 
-    bio = io.BytesIO(data_blob)
     if data_name.endswith(".zst"):
         try:
             import zstandard as zstd
@@ -202,6 +236,7 @@ def _extract_deb_tree(deb_path: Path, src_prefix: str, dst: Path) -> int:
         bio = io.BytesIO(zstd.ZstdDecompressor().decompress(data_blob))
         mode = "r:"
     else:
+        bio = io.BytesIO(data_blob)
         mode = "r:*"
 
     n = 0
