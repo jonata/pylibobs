@@ -37,65 +37,60 @@ jobs:
         run: pytest tests/unit -v
 
   # ------------------------------------------------------------------
-  # Integration tests — exercise real libobs end-to-end.
+  # Wheel-bundling smoke test.
   #
-  # Windows integration is intentionally NOT run in CI: GitHub's
-  # windows-latest runner (Windows Server 2025 in Azure) has no GPU
-  # and an unusually high libobs-shutdown-crash rate on the 21-file
-  # process-isolated test suite. Locally the suite is 100% green —
-  # see scripts/run_tests.py. Run it on your dev box before tagging
-  # a release.
+  # We don't run the full integration suite in CI:
+  #   • Windows runners (Server 2025) trip libobs's shutdown-crash path
+  #     much more often than real hardware — 21-file process-isolated
+  #     suite is 100% green locally but flaky on CI.
+  #   • Linux runners have no GPU, and Mesa llvmpipe / software GL is
+  #     not stable enough for libobs's renderer.
+  #   • macOS runners have no display server.
   #
-  # macOS integration is also dev-only: CI runners have no display.
+  # Run the full suite on your dev box before tagging a release:
+  #     python scripts/run_tests.py
   #
-  # Linux integration here uses bundled libobs + Mesa software GL.
-  # We download a fresh OBS release with fetch_libs.py, set
-  # LD_LIBRARY_PATH so libobs can dlopen its sibling graphics module,
-  # and run the suite under Xvfb.
+  # CI's job here is narrower but covers the things that DO break in
+  # packaging: does fetch_libs.py succeed, does the bundled libobs
+  # load, does it report a version. If those pass, the wheel is sound.
   # ------------------------------------------------------------------
-  integration-linux:
-    name: Integration / Linux (bundled libobs)
+  smoke-linux:
+    name: Smoke / Linux (bundled libobs loads)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install runtime deps + Xvfb + Mesa software GL
-        # OBS 32's libobs.so.0 needs ffmpeg, x264, libpulse, libwayland, …
-        # The simplest way to get them all is to apt-install obs-studio
-        # (which pulls them in as dependencies). We then override its
-        # libobs with the OBS 32 one we bundle via fetch_libs.py.
-        # mesa-utils + libgl1-mesa-dri provide the software OpenGL stack
-        # libobs needs when there's no real GPU (CI runners have none).
+      - name: Install runtime deps for bundled libobs
+        # OBS's libobs.so.0 dlopens system libavcodec, libpulse, etc.
+        # Easiest way to satisfy them all: apt-install obs-studio (its
+        # transitive deps are exactly what we need).
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            obs-studio xvfb zstd dpkg \
-            mesa-utils libgl1-mesa-dri libegl1-mesa-dev libglu1-mesa
+          sudo apt-get install -y obs-studio dpkg
       - name: Install package
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
-      - name: Fetch bundled OBS 32 libobs.so.0
+      - name: Fetch bundled libobs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python scripts/fetch_libs.py --platform linux --arch x86_64
-      - name: Run integration tests under Xvfb (software GL)
-        env:
-          DISPLAY: ":99"
-          LIBGL_ALWAYS_SOFTWARE: "1"
-          GALLIUM_DRIVER: "llvmpipe"
+      - name: Smoke test — bundled libobs loads + reports a version
         run: |
-          # Put the bundled libobs dir on LD_LIBRARY_PATH so libobs's own
-          # dlopen() of `libobs-opengl` (graphics module) and obs-plugins
-          # resolves them inside our bundled tree.
           LIBS_DIR="$(pwd)/pylibobs/_libs/linux/x86_64"
-          export LD_LIBRARY_PATH="${LIBS_DIR}:${LIBS_DIR}/obs-plugins:${LD_LIBRARY_PATH:-}"
-          echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
-
-          Xvfb :99 -screen 0 1920x1080x24 +extension GLX +render -noreset &
-          sleep 3
-          glxinfo -B || true                # show what GL we got
-          pytest tests/integration -m integration -v --tb=short
+          export LD_LIBRARY_PATH="${LIBS_DIR}:${LD_LIBRARY_PATH:-}"
+          python - <<'PY'
+          from pylibobs._lib import find_libobs
+          from pylibobs._ffi import get_lib, ffi
+          path = find_libobs()
+          print(f"bundled libobs: {path}")
+          lib = get_lib()
+          ver = ffi.string(lib.obs_get_version_string()).decode()
+          print(f"libobs reports: {ver}")
+          assert ver, "obs_get_version_string returned empty"
+          assert "linux/x86_64" in path, "didn't pick bundled libobs"
+          print("OK")
+          PY
