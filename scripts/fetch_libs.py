@@ -394,13 +394,127 @@ def fetch_for(plat: str, arch: str, release: dict, cache: Path) -> bool:
         print(f"  unsupported kind: {kind}")
         return False
 
+    # ----- Trim bulk we don't need to keep the wheel under PyPI limits ---
+    removed = _trim_bundled(dst)
+    if removed:
+        print(f"    -{removed['files']} files / -{removed['mb']:.1f} MB trimmed")
+
     verify = cfg.get("verify_file")
     if verify and not (dst / verify).exists():
         print(f"  [!] expected {verify} missing after extraction")
         return False
 
-    print(f"  OK: {total} files in {dst}")
+    # Report final size
+    final_files = list(dst.rglob("*"))
+    final_mb = sum(f.stat().st_size for f in final_files if f.is_file()) / 1e6
+    print(f"  OK: {sum(1 for f in final_files if f.is_file())} files, "
+          f"{final_mb:.0f} MB in {dst}")
     return True
+
+
+# --------------------------------------------------------------------------
+# Trim — drop content we don't need for a libobs-as-library use case.
+#
+# What we KEEP:
+#   • libobs + its direct system deps (ffmpeg, x264, libpulse, etc.)
+#   • obs-plugins for capture, encoding, output, filters, transitions
+#     (the ones a Python-driven recording/streaming app actually needs)
+#   • data/ files those plugins read at runtime (shaders, presets)
+#
+# What we DROP:
+#   • Debug symbols (*.pdb on Windows, *.dSYM/ on macOS)
+#   • Qt6 libraries (Qt is for the OBS GUI, not libobs)
+#   • obs-frontend-api (only meaningful with the OBS GUI loaded)
+#   • obs-browser + bundled CEF/Chromium (~250 MB; browser sources
+#     are not a typical pylibobs use case and CEF dwarfs everything)
+#   • obs-vst (audio plugin host — niche)
+#   • DeckLink (Blackmagic capture; requires their proprietary driver)
+#   • cmake/ and include/ (development headers for C plugin authors)
+# --------------------------------------------------------------------------
+_TRIM_GLOBS = [
+    # Debug symbols
+    "**/*.pdb",
+    "**/*.dSYM",
+    # Qt (GUI-only, ~30 MB on each platform)
+    "**/Qt6*.dll", "**/Qt6*.dylib",
+    "**/Qt6*.framework",
+    "**/libQt6*.so*",
+    "**/QtCore.framework",   "**/QtGui.framework",
+    "**/QtWidgets.framework","**/QtNetwork.framework",
+    "**/QtSvg.framework",    "**/QtDBus.framework",
+    "**/QtXml.framework",    "**/QtConcurrent.framework",
+    # Qt platform plugins
+    "**/platforms",    # Qt's qwindows.dll / libqxcb.so dir
+    "**/styles",       # Qt styles dir
+    "**/iconengines",
+    "**/imageformats",
+    # obs-frontend-api (used by the OBS GUI to talk to itself; not libobs)
+    "**/obs-frontend-api.dll",
+    "**/libobs-frontend-api*",
+    "**/obs-frontend-api.framework",
+    "**/frontend-tools*",
+    # obs-browser + CEF/Chromium (~250 MB on its own)
+    "**/obs-browser*",
+    "**/libcef*", "**/cef_*",
+    "**/libEGL*", "**/libGLESv2*",
+    "**/chrome_elf*", "**/d3dcompiler_*",
+    "**/snapshot_blob*", "**/v8_*",
+    "**/icudtl.dat", "**/resources.pak", "**/chrome_*.pak",
+    "**/Resources/locales",
+    # obs-vst (VST host — niche)
+    "**/obs-vst*",
+    # DeckLink (Blackmagic capture — requires their SDK driver)
+    "**/decklink*",
+    # NVIDIA Video Effects (needs separate NVIDIA SDK install)
+    "**/nv-filters*",
+    # Dev artefacts
+    "**/cmake",
+    "**/include",
+    "**/pkgconfig",
+    # CEF/Chromium leftovers that survived obs-browser removal
+    "**/chrome-sandbox",
+    "**/chrome_crashpad_handler",
+    # SwiftShader (Vulkan-on-CPU fallback used by obs-browser)
+    "**/libvk_swiftshader*",
+    "**/vk_swiftshader*",
+    "**/libvulkan*",
+    "**/libGLESv*",
+    # obs-scripting (Lua/Python scripting INSIDE OBS — different from
+    # pylibobs's "Python wrapping libobs"; not needed)
+    "**/obs-scripting*",
+    "**/libobs-scripting*",
+    # OBS Studio GUI artifacts (icons, .desktop, man pages, AppStream)
+    "**/applications",
+    "**/icons",
+    "**/man",
+    "**/metainfo",
+    # OBS websocket plugin needs Qt for its settings dialog
+    "**/obs-websocket*",
+]
+
+
+def _trim_bundled(root: Path) -> dict:
+    """Delete anything matching _TRIM_GLOBS under `root`. Returns counts."""
+    removed_files = 0
+    removed_bytes = 0
+    for pattern in _TRIM_GLOBS:
+        for hit in root.glob(pattern):
+            # File: just unlink. Directory: rmtree.
+            try:
+                if hit.is_dir() and not hit.is_symlink():
+                    size = sum(f.stat().st_size for f in hit.rglob("*") if f.is_file())
+                    cnt = sum(1 for _ in hit.rglob("*"))
+                    shutil.rmtree(hit, ignore_errors=True)
+                    removed_files += cnt
+                    removed_bytes += size
+                elif hit.exists() or hit.is_symlink():
+                    if hit.is_file():
+                        removed_bytes += hit.stat().st_size
+                        removed_files += 1
+                    hit.unlink(missing_ok=True)
+            except Exception as e:
+                print(f"    couldn't remove {hit.name}: {e}")
+    return {"files": removed_files, "mb": removed_bytes / 1e6}
 
 
 # ==========================================================================

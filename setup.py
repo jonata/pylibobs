@@ -46,6 +46,18 @@ class BdistWheel(_BdistWheel):
         self.root_is_pure = False
     def get_tag(self):
         _py, _abi, plat = super().get_tag()
+        # On Apple Silicon CI runners, setuptools picks up the host
+        # Python's "universal2" tag — but our bundled libobs is single-
+        # architecture (we extract only the matching slice from OBS.app).
+        # Force the tag to the real architecture so PyPI accepts the
+        # wheel and pip selects it correctly.
+        if "universal2" in plat:
+            import platform as _platform
+            host_arch = _platform.machine().lower()
+            if host_arch in ("arm64", "aarch64"):
+                plat = plat.replace("universal2", "arm64")
+            elif host_arch in ("x86_64", "amd64"):
+                plat = plat.replace("universal2", "x86_64")
         return "py3", "none", plat
 
 

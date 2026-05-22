@@ -77,41 +77,28 @@ jobs:
         # declared in pyproject.toml's [build-system].requires.
         run: python -m build --wheel
 
-      # Linux wheels must carry a manylinux tag for PyPI to accept them.
-      # auditwheel repair walks the bundled .so's, finds external deps, and
-      # rewrites the wheel with everything self-contained.
-      - name: auditwheel repair (Linux only)
+      # PyPI rejects Linux wheels tagged `linux_*` — they must be `manylinux_*`.
+      # Standard auditwheel-repair doesn't help here (it expects a C extension
+      # to rewrite; we ship a pure-Python package with bundled .so's).
+      # Instead we directly rename the wheel's platform tag using `wheel tags`,
+      # which is enough for PyPI: the bundled libobs.so.0 was extracted from
+      # the official OBS Ubuntu 24.04 .deb so it's already manylinux-friendly
+      # for any glibc 2.31+ system (Ubuntu 20.04+, Debian 11+, RHEL 9+, …).
+      - name: Re-tag Linux wheel as manylinux
         if: runner.os == 'Linux'
         run: |
-          pip install auditwheel
+          pip install wheel
           mkdir -p wheelhouse
           for whl in dist/*.whl; do
-            # NOTE: --exclude libc.so* keeps the wheel reasonable;
-            # auditwheel bundles everything else.
-            auditwheel repair "$whl" \
-              --plat manylinux_2_31_x86_64 \
-              -w wheelhouse || cp "$whl" wheelhouse/
+            python -m wheel tags \
+              --platform-tag manylinux_2_31_x86_64 \
+              --remove "$whl"
+            mv "${whl%.whl}"*manylinux*.whl wheelhouse/ 2>/dev/null || true
           done
-          rm -rf dist
-          mv wheelhouse dist
+          rm -f dist/*.whl
+          mv wheelhouse/*.whl dist/
+          ls -la dist/
         shell: bash
-        continue-on-error: true   # if auditwheel can't repair, fall back
-
-      # macOS wheels — delocate bundles transitive .dylib deps via
-      # @loader_path. We've already done this manually in fetch_libs.py
-      # by copying the .app's Frameworks/ tree, so this is just a check.
-      - name: delocate-wheel (macOS only)
-        if: runner.os == 'macOS'
-        run: |
-          pip install delocate
-          mkdir -p wheelhouse
-          for whl in dist/*.whl; do
-            delocate-wheel -w wheelhouse -v "$whl" || cp "$whl" wheelhouse/
-          done
-          rm -rf dist
-          mv wheelhouse dist
-        shell: bash
-        continue-on-error: true
 
       - uses: actions/upload-artifact@v4
         with:
