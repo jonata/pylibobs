@@ -490,6 +490,18 @@ _TRIM_GLOBS = [
     "**/metainfo",
     # OBS websocket plugin needs Qt for its settings dialog
     "**/obs-websocket*",
+    # macOS .app frameworks with literal spaces in their bundle names
+    # (the glob `**/obs-browser*` / `**/libcef*` doesn't catch these — the
+    # official CEF distribution uses the human-readable name "Chromium
+    # Embedded Framework.framework" inside OBS.app/Contents/Frameworks/)
+    "**/Chromium Embedded Framework.framework",   # ~678 MB on its own
+    "**/Sparkle.framework",                       # macOS auto-updater (GUI)
+    "**/Syphon.framework",                        # niche capture proto
+    "**/OBS Helper.app",                          # CEF helper subprocesses
+    "**/OBS Helper (GPU).app",
+    "**/OBS Helper (Plugin).app",
+    "**/OBS Helper (Renderer).app",
+    "**/OBS Helper (Alerts).app",
 ]
 
 
