@@ -42,10 +42,10 @@ jobs:
       - name: Install build deps
         run: |
           python -m pip install --upgrade pip
-          pip install build wheel requests
-          # Linux .deb extraction may need zstandard if data.tar is zstd
-          python -c "import sys; sys.exit(0 if sys.platform!='linux' else 0)" || true
-          if [ "${{ runner.os }}" = "Linux" ]; then pip install zstandard; fi
+          pip install "setuptools>=68" build wheel requests
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            pip install zstandard
+          fi
         shell: bash
 
       - name: Download bundled libobs
@@ -72,7 +72,9 @@ jobs:
         shell: bash
 
       - name: Build wheel
-        run: python -m build --wheel --no-isolation
+        # Use build isolation so build downloads the exact setuptools>=68
+        # declared in pyproject.toml's [build-system].requires.
+        run: python -m build --wheel
 
       # Linux wheels must carry a manylinux tag for PyPI to accept them.
       # auditwheel repair walks the bundled .so's, finds external deps, and

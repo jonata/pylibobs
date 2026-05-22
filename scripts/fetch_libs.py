@@ -265,6 +265,12 @@ def _extract_deb_tree_python(deb_path: Path, src_prefix: str, dst: Path) -> int:
 def _extract_dmg(dmg_path: Path, dst_root: Path) -> int:
     """Mount the DMG with `hdiutil`, copy the .app's Frameworks + Resources
     over, then unmount. macOS-only.
+
+    OBS on macOS packages libobs as a .framework bundle (Mach-O convention),
+    not a flat .dylib. After extraction we surface the binary at
+    `Frameworks/libobs.dylib` (a copy/symlink) so the rest of the build —
+    including the wheel's verify check — finds it without knowing about
+    framework internals.
     """
     if sys.platform != "darwin":
         print("  [!] DMG extraction requires macOS (uses hdiutil). Skipping.")
@@ -278,23 +284,65 @@ def _extract_dmg(dmg_path: Path, dst_root: Path) -> int:
              "-nobrowse", "-quiet"],
         )
         try:
-            # Find OBS.app inside the mount
-            app = next(mount_pt.glob("OBS.app"), None)
-            if app is None:
-                raise RuntimeError("OBS.app not found inside DMG")
+            # OBS's .dmg sometimes contains "OBS.app", sometimes "OBS Studio.app".
+            apps = list(mount_pt.glob("*.app"))
+            if not apps:
+                # Diagnostic: dump the mount contents so the failure is obvious
+                print("  [!] No .app bundle found in DMG. Mount contents:")
+                for p in mount_pt.iterdir():
+                    print(f"      {p.name}")
+                raise RuntimeError("No .app bundle inside DMG")
+            app = apps[0]
+            print(f"    found app: {app.name}")
             contents = app / "Contents"
-            shutil.copytree(contents / "Frameworks",
-                            dst_root / "Frameworks",
-                            dirs_exist_ok=True)
-            shutil.copytree(contents / "Resources",
-                            dst_root / "data",
-                            dirs_exist_ok=True)
-            # Convenience: expose libobs.dylib at the top level so the wheel's
-            # _lib.py finder picks it up
-            top_dylib = dst_root / "libobs.dylib"
-            real = dst_root / "Frameworks" / "libobs.dylib"
-            if real.exists() and not top_dylib.exists():
-                shutil.copy2(real, top_dylib)
+
+            if (contents / "Frameworks").exists():
+                shutil.copytree(contents / "Frameworks",
+                                dst_root / "Frameworks",
+                                dirs_exist_ok=True, symlinks=True)
+            if (contents / "Resources").exists():
+                shutil.copytree(contents / "Resources",
+                                dst_root / "data",
+                                dirs_exist_ok=True, symlinks=True)
+
+            # Locate the libobs binary wherever the .app put it. Common
+            # layouts:
+            #   Frameworks/libobs.dylib                            (flat)
+            #   Frameworks/libobs.0.dylib                          (versioned)
+            #   Frameworks/libobs.framework/Versions/A/libobs       (framework)
+            #   Frameworks/libobs.framework/libobs                  (legacy)
+            frameworks_dir = dst_root / "Frameworks"
+            real_libobs = None
+            for cand in [
+                frameworks_dir / "libobs.dylib",
+                frameworks_dir / "libobs.0.dylib",
+                frameworks_dir / "libobs.framework" / "Versions" / "A" / "libobs",
+                frameworks_dir / "libobs.framework" / "libobs",
+            ]:
+                if cand.exists():
+                    real_libobs = cand
+                    break
+
+            if real_libobs is None:
+                # Last-ditch: any file named "libobs*" anywhere in Frameworks
+                for cand in frameworks_dir.rglob("libobs*"):
+                    if cand.is_file() and not cand.is_symlink():
+                        real_libobs = cand
+                        break
+
+            if real_libobs is None:
+                print(f"  [!] No libobs binary found in {frameworks_dir}. Layout:")
+                for p in sorted(frameworks_dir.rglob("*"))[:30]:
+                    print(f"      {p.relative_to(dst_root)}")
+                raise RuntimeError("libobs binary not located inside .app/Frameworks")
+            print(f"    libobs at: {real_libobs.relative_to(dst_root)}")
+
+            # Standard top-level alias so _lib.py and verify_file find it.
+            top = frameworks_dir / "libobs.dylib"
+            if real_libobs != top:
+                if top.exists() or top.is_symlink():
+                    top.unlink()
+                shutil.copy2(real_libobs, top)
             return sum(1 for _ in dst_root.rglob("*") if _.is_file())
         finally:
             subprocess.call(["hdiutil", "detach", str(mount_pt), "-quiet"])
