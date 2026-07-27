@@ -200,6 +200,21 @@ _ENUMS = """
 # ---------------------------------------------------------------------------
 # Structs
 # ---------------------------------------------------------------------------
+import sys as _sys
+
+# libobs `struct gs_window` is a platform-specific union member of gs_init_data.
+# Its size/layout must match the running platform's ABI, otherwise every field
+# after `window` in gs_init_data (cx, cy, format, ...) lands at the wrong offset.
+#   Windows: { void *hwnd; }
+#   Linux/*BSD (X11): { uint32_t id; void *display; }
+#   macOS: { id view; }  (an Objective-C object pointer)
+if _sys.platform.startswith("linux") or "bsd" in _sys.platform:
+    _GS_WINDOW = "struct gs_window { uint32_t id; void *display; };"
+elif _sys.platform == "darwin":
+    _GS_WINDOW = "struct gs_window { void *view; };"
+else:
+    _GS_WINDOW = "struct gs_window { void *hwnd; };"
+
 _STRUCTS = """
     /* IMPORTANT: field order must match libobs/obs.h exactly.
        OBS 31+ moved `adapter` to sit between output_format and gpu_conversion. */
@@ -224,12 +239,7 @@ _STRUCTS = """
         enum speaker_layout speakers;
     };
 
-    /* Windows: struct gs_window is { void *hwnd; }
-       On Linux/macOS this struct contains different fields — for now we
-       only declare the Windows layout. */
-    struct gs_window {
-        void *hwnd;
-    };
+""" + _GS_WINDOW + """
 
     struct gs_init_data {
         struct gs_window           window;
