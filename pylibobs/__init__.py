@@ -29,6 +29,13 @@ License: GPL-2.0-or-later (inherited from libobs).
 """
 
 from .context import OBSContext, VideoFormat, Speakers, ColorSpace, VideoRange, ScaleType  # noqa: F401
+from .context import (  # noqa: F401
+    NixPlatform,
+    set_nix_platform,
+    get_nix_platform,
+    set_nix_platform_display,
+    get_nix_platform_display,
+)
 from .data import OBSData
 from .source import Source
 from .scene import Scene, SceneItem
@@ -78,6 +85,11 @@ from .enumeration import (
 __version__ = "0.0.1"
 __all__ = [
     "OBSContext",
+    "NixPlatform",
+    "set_nix_platform",
+    "get_nix_platform",
+    "set_nix_platform_display",
+    "get_nix_platform_display",
     "OBSData",
     "Source",
     "Scene",

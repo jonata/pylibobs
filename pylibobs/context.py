@@ -90,6 +90,41 @@ _DEFAULT_GRAPHICS_MODULE = {
 }
 
 
+class NixPlatform(IntEnum):
+    """libobs Linux/*BSD windowing platform (``obs_nix_platform_type``)."""
+
+    INVALID = 0
+    X11_EGL = 1
+    WAYLAND = 2
+
+
+def set_nix_platform(platform: int) -> None:
+    """Select the Linux/*BSD windowing platform. Call BEFORE ``set_video``.
+
+    Only meaningful on Linux/*BSD builds of libobs.
+    """
+    get_lib().obs_set_nix_platform(int(platform))
+
+
+def get_nix_platform() -> int:
+    return int(get_lib().obs_get_nix_platform())
+
+
+def set_nix_platform_display(display: int) -> None:
+    """Share the host toolkit's X/Wayland display with libobs.
+
+    ``display`` is an integer pointer (e.g. Qt's Xlib ``Display*``). Setting it
+    before ``set_video`` makes libobs' EGL reuse the toolkit's connection rather
+    than opening a second one — the fix for ``EGL_BAD_ACCESS`` when embedding a
+    libobs display next to a Qt/GTK OpenGL context on the same GPU.
+    """
+    get_lib().obs_set_nix_platform_display(ffi.cast("void *", int(display)))
+
+
+def get_nix_platform_display() -> int:
+    return int(ffi.cast("uintptr_t", get_lib().obs_get_nix_platform_display()))
+
+
 class OBSContext:
     """
     Context manager that owns the libobs runtime lifecycle.
