@@ -20,11 +20,42 @@ from typing import Callable
 from ._ffi import ffi, get_lib, is_alive, register_wrapper
 
 
-# Sensible Windows defaults. On Linux/macOS the gs_window layout differs and
-# isn't supported by this wrapper yet.
 _DEFAULT_FORMAT_BGRA = 5     # GS_BGRA
 _ZS_NONE = 0                 # GS_ZS_NONE
 _DEFAULT_BG = 0xFF1A1A1A     # near-black
+
+
+_x11_display_ptr = 0
+
+
+def _open_x11_display() -> int:
+    """Open (once) and cache an X11 ``Display*`` for libobs window targets.
+
+    libobs' ``gs_window`` on Linux needs an X display connection alongside the
+    target ``Window`` XID.  We open our own connection to the default server
+    (``$DISPLAY``); the XID passed to :meth:`Display.from_window` is a
+    server-global id, so the GLX/EGL backend can create a rendering surface for
+    it on this connection even though the window was created by the GUI toolkit.
+
+    Returns the connection as an int pointer, or ``0`` if it could not be opened.
+    """
+    global _x11_display_ptr
+    if _x11_display_ptr:
+        return _x11_display_ptr
+    import ctypes
+
+    for soname in ("libX11.so.6", "libX11.so"):
+        try:
+            x11 = ctypes.CDLL(soname)
+        except OSError:
+            continue
+        x11.XOpenDisplay.restype = ctypes.c_void_p
+        x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        ptr = x11.XOpenDisplay(None)
+        if ptr:
+            _x11_display_ptr = int(ptr)
+            return _x11_display_ptr
+    return 0
 
 
 def render_main_texture_letterboxed(canvas_w: int, canvas_h: int,
@@ -94,28 +125,46 @@ class Display:
         background_color: int = _DEFAULT_BG,
         num_backbuffers: int = 1,
         adapter: int = 0,
+        x_display: int | None = None,
     ) -> "Display":
         """
         Create an obs_display_t targeting a native window.
 
         Parameters
         ----------
-        hwnd:    Native window handle (HWND on Windows).
+        hwnd:    Native window handle. On Windows this is the HWND; on Linux/X11
+                 it is the X ``Window`` XID (e.g. ``int(qwidget.winId())`` while
+                 the platform is ``xcb``).
         width:   Initial display width in pixels.
         height:  Initial display height in pixels.
         background_color: 0xAARRGGBB color used outside the rendered area.
+        x_display: (Linux only) an existing X ``Display*`` as an int pointer to
+                 reuse instead of opening a fresh connection. Optional.
         """
-        if platform.system() != "Windows":
-            raise NotImplementedError(
-                "Display.from_window currently only supports Windows. "
-                "Linux/macOS would need a different gs_window layout."
-            )
         if not hwnd:
-            raise ValueError("hwnd is 0/NULL")
+            raise ValueError("window handle is 0/NULL")
 
+        system = platform.system()
         lib = get_lib()
         init = ffi.new("struct gs_init_data *")
-        init.window.hwnd = ffi.cast("void *", int(hwnd))
+
+        if system == "Windows":
+            init.window.hwnd = ffi.cast("void *", int(hwnd))
+        elif system == "Darwin":
+            raise NotImplementedError(
+                "Display.from_window does not yet support macOS (needs an NSView)."
+            )
+        else:
+            # Linux/*BSD (X11): fill { uint32_t id; void *display; }.
+            display_ptr = int(x_display) if x_display else _open_x11_display()
+            if not display_ptr:
+                raise RuntimeError(
+                    "Could not open an X11 display connection for libobs "
+                    "(is $DISPLAY set and libX11 available?)."
+                )
+            init.window.id = int(hwnd)
+            init.window.display = ffi.cast("void *", display_ptr)
+
         init.cx = int(width)
         init.cy = int(height)
         init.num_backbuffers = num_backbuffers
