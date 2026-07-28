@@ -394,6 +394,10 @@ def fetch_for(plat: str, arch: str, release: dict, cache: Path) -> bool:
         print(f"  unsupported kind: {kind}")
         return False
 
+    # ----- Linux: make the bundle self-locating (see _set_linux_rpath) ---
+    if plat == "linux":
+        _set_linux_rpath(dst)
+
     # ----- Trim bulk we don't need to keep the wheel under PyPI limits ---
     removed = _trim_bundled(dst)
     if removed:
@@ -503,6 +507,36 @@ _TRIM_GLOBS = [
     "**/OBS Helper (Renderer).app",
     "**/OBS Helper (Alerts).app",
 ]
+
+
+def _set_linux_rpath(root: Path) -> None:
+    """Stamp an ``$ORIGIN`` RPATH onto the bundled ``libobs*.so`` files.
+
+    OBS ships libobs with no RPATH, so at runtime libobs's internal
+    ``os_dlopen("libobs-opengl.so")`` (the graphics module) resolves only via
+    the system linker search path — which does not include our private
+    ``_libs/`` dir. With ``$ORIGIN`` on libobs, that dlopen finds its sibling
+    ``libobs-opengl.so`` right next to it, so the bundle is self-contained with
+    no ``LD_LIBRARY_PATH`` needed. Best-effort: skipped (with a note) if
+    patchelf is unavailable.
+    """
+    targets = sorted(root.glob("libobs.so*"))
+    if not targets:
+        return
+    if shutil.which("patchelf") is None:
+        print("    [!] patchelf not found — skipping $ORIGIN rpath; libobs "
+              "may fail to load libobs-opengl.so without LD_LIBRARY_PATH")
+        return
+    for so in targets:
+        if so.is_symlink():
+            continue
+        try:
+            subprocess.run(["patchelf", "--force-rpath", "--set-rpath",
+                            "$ORIGIN", str(so)], check=True,
+                           capture_output=True)
+        except (subprocess.CalledProcessError, OSError) as e:
+            print(f"    couldn't set rpath on {so.name}: {e}")
+    print(f"    set $ORIGIN rpath on {sum(1 for t in targets if not t.is_symlink())} libobs .so")
 
 
 def _trim_bundled(root: Path) -> dict:

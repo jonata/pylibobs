@@ -122,6 +122,46 @@ def release_all_wrappers() -> None:
 
     snapshot.sort(key=order_key)
 
+    # Before releasing anything, empty every live scene of its items.
+    #
+    # obs_scene_release() alone does not destroy a scene synchronously — the
+    # actual teardown is deferred to libobs's video/graphics thread. If a scene
+    # still holds items when obs_shutdown() runs, that deferred destroy fires on
+    # the video thread (obs_sceneitem_release -> obs_source_release) at the same
+    # time obs_shutdown() frees the remaining sources on the main thread — a
+    # double-free that segfaults on Linux. obs_sceneitem_remove() drops the
+    # scene's reference to each item's source *synchronously* on this thread, so
+    # by the time obs_shutdown() runs there is nothing left to race on.
+    #
+    # We enumerate scenes via obs_enum_scenes() rather than walking our tracked
+    # wrappers: a user (or the studio) may have dropped a Scene wrapper whose
+    # underlying scene is still alive in libobs, and that scene's items would
+    # otherwise never be cleared. See tests/integration/test_shutdown.py.
+    lib = get_lib()
+
+    @ffi.callback("bool(obs_scene_t *, obs_sceneitem_t *, void *)")
+    def _remove_item(_scene_ptr, item_ptr, _param):
+        try:
+            lib.obs_sceneitem_remove(item_ptr)
+        except Exception:
+            pass
+        return True
+
+    @ffi.callback("bool(void *, obs_source_t *)")
+    def _empty_scene(_param, source_ptr):
+        try:
+            scene_ptr = lib.obs_scene_from_source(source_ptr)
+            if scene_ptr != ffi.NULL:
+                lib.obs_scene_enum_items(scene_ptr, _remove_item, ffi.NULL)
+        except Exception:
+            pass
+        return True
+
+    try:
+        lib.obs_enum_scenes(_empty_scene, ffi.NULL)
+    except Exception:
+        pass
+
     for w in snapshot:
         try:
             w.release()

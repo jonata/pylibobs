@@ -299,3 +299,40 @@ def get_obs_module_dirs() -> tuple[str, str]:
         return "/usr/local/lib/obs-plugins", "/usr/local/share/obs/obs-plugins/%module%"
 
     return "", ""
+
+
+def _lib_suffix() -> str:
+    return {"Windows": ".dll", "Darwin": ".dylib"}.get(platform.system(), ".so")
+
+
+def get_bundled_modules() -> list[tuple[str, str, str]]:
+    """Enumerate the plugin modules bundled inside the wheel.
+
+    Returns a list of ``(name, bin_path, data_path)`` tuples — one per plugin
+    shared library under ``pylibobs/_libs/.../obs-plugins/`` — with ``name``
+    the module basename (no extension) and ``data_path`` the matching
+    ``data/obs-plugins/<name>`` directory.
+
+    Returns an empty list when no bundled plugin directory exists (i.e. we are
+    running against a system OBS install). Loading these explicitly lets us
+    avoid libobs's default module scan, which — on Linux especially — would
+    otherwise pick up a system OBS's Qt frontend plugins (``frontend-tools``,
+    ``decklink-output-ui``, …). Those abort the process because they construct
+    Qt widgets with no ``QApplication``, which pylibobs never creates.
+    """
+    bin_dir, data_tmpl = get_obs_module_dirs()
+    if not bin_dir:
+        return []
+    bin_path = Path(bin_dir)
+    # Only treat this as "bundled" when the plugins live inside our package.
+    # get_obs_module_dirs() resolve()s its result, so resolve _LIBS_DIR too.
+    if _LIBS_DIR.resolve() not in bin_path.resolve().parents or not bin_path.exists():
+        return []
+
+    suffix = _lib_suffix()
+    modules: list[tuple[str, str, str]] = []
+    for so in sorted(bin_path.glob(f"*{suffix}")):
+        name = so.name[: -len(suffix)]
+        data_path = data_tmpl.replace("%module%", name)
+        modules.append((name, str(so), data_path))
+    return modules

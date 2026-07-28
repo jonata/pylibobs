@@ -20,7 +20,7 @@ from ._ffi import ffi, get_lib, mark_alive, mark_dead, release_all_wrappers
 
 # libobs MAX_CHANNELS is 64 in the public ABI; conservatively clear that many.
 _MAX_OUTPUT_CHANNELS = 64
-from ._lib import get_obs_data_dir, get_obs_module_dirs
+from ._lib import get_bundled_modules, get_obs_data_dir, get_obs_module_dirs
 
 
 class VideoFormat(IntEnum):
@@ -201,12 +201,25 @@ class OBSContext:
             import gc
             gc.collect()
 
-            # Some sources (e.g. text_gdiplus) defer GPU-resource destruction
-            # to libobs's graphics thread. Give it time to drain before
-            # obs_shutdown tears down that thread — otherwise the in-flight
-            # destroy callback can run on a torn-down graphics context.
-            import time
-            time.sleep(0.2)
+            # Many sources (color_source, text, image, …) defer destruction of
+            # their GPU resources to libobs's video/graphics thread. Releasing
+            # the last reference only *queues* that destroy; if obs_shutdown
+            # then tears the graphics thread down while a destroy is still in
+            # flight, the callback runs on a dead graphics context and
+            # segfaults (obs_source_release → … on a worker thread).
+            #
+            # obs_wait_for_destroy_queue() is libobs's own barrier for exactly
+            # this — it round-trips the video thread until the deferred-destroy
+            # queue is empty, which is what the OBS frontend does on shutdown.
+            # Bounded loop: each call drains one batch; stop when it reports
+            # nothing left (or after a sane cap, so a stuck thread can't hang
+            # shutdown forever).
+            try:
+                for _ in range(10):
+                    if not lib.obs_wait_for_destroy_queue():
+                        break
+            except Exception:
+                pass
 
             # Step 4: tear down libobs
             lib.obs_shutdown()
@@ -280,8 +293,32 @@ class OBSContext:
         lib.obs_add_module_path(bin_path.encode(), data_path.encode())
 
     def load_modules(self, auto_detect: bool = True) -> None:
-        """Load OBS plugin modules from standard install paths."""
+        """Load OBS plugin modules.
+
+        When plugins are bundled inside the wheel, they are loaded explicitly,
+        one by one, and libobs's default module scan is skipped. This keeps a
+        co-installed system OBS out of the picture — its Qt frontend plugins
+        (``frontend-tools``, ``decklink-output-ui``, …) abort the process when
+        libobs auto-loads them, because they build Qt widgets with no
+        ``QApplication`` (pylibobs is headless / embeds into a foreign toolkit).
+
+        Falls back to ``obs_load_all_modules`` against the resolved install
+        path when nothing is bundled (running against a system OBS).
+        """
         lib = get_lib()
+
+        bundled = get_bundled_modules() if auto_detect else []
+        if bundled:
+            for name, bin_path, data_path in bundled:
+                module_pp = ffi.new("obs_module_t **")
+                rc = lib.obs_open_module(module_pp,
+                                         bin_path.encode(), data_path.encode())
+                if rc != 0:                       # != MODULE_SUCCESS
+                    continue
+                lib.obs_init_module(module_pp[0])
+            lib.obs_post_load_modules()
+            return
+
         if auto_detect:
             bin_dir, data_dir = get_obs_module_dirs()
             if bin_dir:
