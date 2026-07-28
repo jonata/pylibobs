@@ -8,7 +8,7 @@ and may also be run by maintainers locally:
     python scripts/fetch_libs.py                       # current platform
     python scripts/fetch_libs.py --all                 # every platform
     python scripts/fetch_libs.py --platform linux --arch x86_64
-    python scripts/fetch_libs.py --version 32.1.2      # pin OBS version
+    python scripts/fetch_libs.py --version 32.2.1      # pin OBS version
 
 The bundled files are written under:
     pylibobs/_libs/<platform>/<arch>/
@@ -76,7 +76,10 @@ ASSET_PATTERNS: dict[tuple[str, str], dict] = {
         #   usr/local/lib/x86_64-linux-gnu/obs-plugins/*.so
         #   usr/local/share/obs/libobs/*.effect        (shader effects)
         #   usr/local/share/obs/obs-plugins/*/         (plugin data)
-        "asset_re": r"OBS-Studio-[\d.]+-Ubuntu-[\d.]+-x86_64\.deb$",
+        # Recent releases ship several Ubuntu builds (24.04, 26.04, …). Pin the
+        # 24.04 LTS deb: it links the oldest glibc of the set, so the bundled
+        # binaries run on the widest range of distros.
+        "asset_re": r"OBS-Studio-[\d.]+-Ubuntu-24\.04-x86_64\.deb$",
         "kind": "deb",
         "extract": {
             "usr/local/lib/x86_64-linux-gnu/":  "",
@@ -592,7 +595,7 @@ def main() -> int:
     ap.add_argument("--arch", default=None,
                     help="Override arch (x86_64 / arm64)")
     ap.add_argument("--version", default=None,
-                    help="OBS Studio version tag, e.g. 32.1.2")
+                    help="OBS Studio version tag, e.g. 32.2.1")
     args = ap.parse_args()
 
     release = get_release(args.version)
