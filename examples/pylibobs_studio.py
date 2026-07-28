@@ -34,7 +34,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from pylibobs import (
     AudioEncoder, ComboFormat, Display, Fader, FaderType, OBSContext,
     OBSData, Output, Properties, PropertyType, Scene, Service, Source,
-    VideoEncoder, VolumeMeter, enum_input_types, get_source_display_name,
+    Transition, VideoEncoder, VolumeMeter, enum_input_types,
+    enum_output_types, get_source_display_name,
     render_main_texture_letterboxed,
 )
 from pylibobs._ffi import get_lib
@@ -52,6 +53,14 @@ STREAMING_PRESETS = {
 
 CANVAS_W, CANVAS_H, FPS = 1280, 720, 30
 RECORDING_DEFAULTS = {"rate_control": "CRF", "crf": 23, "preset": "veryfast"}
+
+# Recording muxers that run IN-PROCESS, keyed by file extension. The classic
+# "ffmpeg_muxer" spawns an obs-ffmpeg-mux helper executable that libobs looks
+# for next to the host program — which fails under a read-only system Python on
+# Linux. OBS's native mp4/mov muxers do the muxing in-process, so they need no
+# helper and "just work" everywhere. We prefer them and fall back to
+# ffmpeg_muxer only for containers they can't write (e.g. .mkv).
+INPROCESS_MUXERS = {".mp4": "mp4_output", ".mov": "mov_output"}
 
 
 # ==========================================================================
@@ -755,6 +764,7 @@ class PylibobsStudio:
         self.aenc: AudioEncoder | None = None
         self.output: Output | None = None
         self.display: Display | None = None
+        self.transition: Transition | None = None   # lazy — built on first crossfade
 
         # streaming pipeline (created lazily on first Start Stream)
         self.stream_output:  Output | None        = None
@@ -814,6 +824,8 @@ class PylibobsStudio:
                    command=self._add_scene_prompt).pack(side="left")
         ttk.Button(scn_btns, text="− Remove", width=10,
                    command=self._remove_scene).pack(side="left", padx=2)
+        ttk.Button(scenes_lf, text="⤫ Crossfade → next",
+                   command=self._crossfade_to_next).pack(fill="x", pady=(4, 0))
 
         # Sources column
         srcs_lf = ttk.LabelFrame(mid, text="Sources", padding=4)
@@ -849,7 +861,7 @@ class PylibobsStudio:
         ctrl = ttk.Frame(self.root, padding=4)
         ctrl.grid(row=2, column=0, sticky="ew", padx=4)
         ttk.Label(ctrl, text="Output file:").pack(side="left")
-        self.path_var = tk.StringVar(value=str(Path.cwd() / "recording.mkv"))
+        self.path_var = tk.StringVar(value=str(Path.cwd() / "recording.mp4"))
         ttk.Entry(ctrl, textvariable=self.path_var).pack(
             side="left", fill="x", expand=True, padx=4,
         )
@@ -992,6 +1004,56 @@ class PylibobsStudio:
             get_lib().obs_set_output_source(0, _ffi.NULL)
         self._refresh_sources_list()
         self._rebuild_mixer()
+
+    def _crossfade_to_next(self) -> None:
+        """Demo the fade (crossfade) transition.
+
+        Routes the program output through an obs ``fade_transition`` and
+        dissolves from the current scene to the next scene in the list. libobs
+        transitions are themselves sources: you make the transition the program
+        source (channel 0), point it at the "A" scene, then call
+        ``obs_transition_start`` to cross-fade to the "B" scene.
+        """
+        if self.obs is None:
+            return
+        if len(self.scenes) < 2:
+            messagebox.showinfo(
+                "Crossfade",
+                "Add at least two scenes (ideally with different sources), "
+                "then press Crossfade to dissolve from the current scene to "
+                "the next one.",
+            )
+            return
+
+        cur = self.current_scene_idx if self.current_scene_idx >= 0 else 0
+        tgt = (cur + 1) % len(self.scenes)
+        cur_scene = self.scenes[cur]["scene"]
+        tgt_scene = self.scenes[tgt]["scene"]
+
+        # Lazily build the fade transition, sized to the canvas.
+        if self.transition is None:
+            self.transition = Transition.create("fade_transition", "Crossfade")
+            self.transition.set_size(CANVAS_W, CANVAS_H)
+
+        # Show the current scene *through* the transition, make the transition
+        # the program source (a transition is itself an obs source), then
+        # dissolve to the target over 700 ms.
+        self.transition.set_source(cur_scene.as_source())
+        get_lib().obs_set_output_source(0, self.transition._ptr)
+        self.transition.start(tgt_scene.as_source(), duration_ms=700)
+
+        # Reflect the now-active scene in the UI. Programmatic selection does
+        # not fire <<ListboxSelect>>, so the output stays routed through the
+        # transition rather than being hard-cut back to the raw scene.
+        self.current_scene_idx = tgt
+        self.scenes_list.selection_clear(0, "end")
+        self.scenes_list.selection_set(tgt)
+        self.scenes_list.activate(tgt)
+        self._refresh_sources_list()
+        self._rebuild_mixer()
+        self.status_var.set(
+            f"Crossfade  {self.scenes[cur]['name']}  →  {self.scenes[tgt]['name']}"
+        )
 
     # ------------------------------------------------------------------
     # Sources
@@ -1173,13 +1235,26 @@ class PylibobsStudio:
     # ------------------------------------------------------------------
     def _browse(self) -> None:
         path = filedialog.asksaveasfilename(
-            defaultextension=".mkv",
-            initialfile="recording.mkv",
-            filetypes=[("Matroska", "*.mkv"), ("MP4", "*.mp4"),
-                       ("All files", "*.*")],
+            defaultextension=".mp4",
+            initialfile="recording.mp4",
+            filetypes=[("MP4", "*.mp4"), ("QuickTime", "*.mov"),
+                       ("Matroska", "*.mkv"), ("All files", "*.*")],
         )
         if path:
             self.path_var.set(path)
+
+    def _recording_output_id(self, path: str) -> str:
+        """Pick the best recording output plugin for `path`.
+
+        Prefer OBS's native in-process mp4/mov muxers (no helper subprocess);
+        fall back to ffmpeg_muxer for other containers (e.g. .mkv), which
+        relies on the obs-ffmpeg-mux helper being reachable.
+        """
+        ext = Path(path).suffix.lower()
+        want = INPROCESS_MUXERS.get(ext)
+        if want and want in set(enum_output_types()):
+            return want
+        return "ffmpeg_muxer"
 
     def _start_recording(self) -> None:
         if self.obs is None:
@@ -1187,14 +1262,22 @@ class PylibobsStudio:
         path = self.path_var.get().strip()
         if not path:
             return
+        out_id = self._recording_output_id(path)
         try:
-            self.output = Output.create("ffmpeg_muxer", "rec", {"path": path})
+            self.output = Output.create(out_id, "rec", {"path": path})
             self.output.set_video_encoder(self.venc)
             self.output.set_audio_encoder(self.aenc)
             if not self.output.start():
                 err = self.output.last_error or "(no error message)"
                 self.output.release()
                 self.output = None
+                if out_id == "ffmpeg_muxer":
+                    err += (
+                        "\n\nThis container uses the obs-ffmpeg-mux helper, "
+                        "which must sit next to your Python executable. "
+                        "Record to .mp4 or .mov instead for a self-contained, "
+                        "helper-free muxer."
+                    )
                 messagebox.showerror("Recording failed", err)
                 return
         except Exception as e:

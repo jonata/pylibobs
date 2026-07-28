@@ -265,6 +265,20 @@ _CORE = """
     void        obs_set_locale(const char *locale);
     const char *obs_get_locale(void);
 
+    /* Linux/*BSD windowing platform selection (obs-nix-platform.h).
+       A Qt/GTK host must set the platform + display BEFORE obs_reset_video so
+       libobs' EGL shares the toolkit's X/Wayland connection; otherwise a second
+       EGLDisplay collides with the toolkit's GL context (EGL_BAD_ACCESS). */
+    enum obs_nix_platform_type {
+        OBS_NIX_PLATFORM_INVALID  = 0,
+        OBS_NIX_PLATFORM_X11_EGL  = 1,
+        OBS_NIX_PLATFORM_WAYLAND  = 2
+    };
+    void  obs_set_nix_platform(enum obs_nix_platform_type platform);
+    enum obs_nix_platform_type obs_get_nix_platform(void);
+    void  obs_set_nix_platform_display(void *display);
+    void *obs_get_nix_platform_display(void);
+
     enum obs_video_err obs_reset_video(struct obs_video_info *ovi);
     bool               obs_reset_audio(const struct obs_audio_info *oai);
     bool               obs_get_audio_info(struct obs_audio_info *oai);
