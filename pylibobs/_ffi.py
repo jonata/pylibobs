@@ -85,6 +85,7 @@ def release_all_wrappers() -> None:
     from .scene   import Scene, SceneItem
     from .source  import Source
     from .display import Display
+    from .view    import View
     from .filters import Filter
     from .transitions import Transition
     from .audio_mixer import VolumeMeter, Fader
@@ -97,6 +98,7 @@ def release_all_wrappers() -> None:
     _ORDER: dict[type, int] = {
         Display:       0,  # destroy displays first so the gfx ctx is idle
         Output:        1,
+        View:          2,  # after Output (its video_t feeds outputs), before sources
         VideoEncoder:  2,
         AudioEncoder:  2,
         Service:       3,

@@ -81,6 +81,20 @@ class Output:
             return None
         return AudioEncoder(ptr, owned=False)  # borrowed
 
+    def set_media(self, video, audio) -> None:
+        """Bind a raw output to a specific ``video_t``/``audio_t``.
+
+        ``video``/``audio`` are raw cffi handles (no wrapper class). Pass
+        ``View.add()`` + ``ctx.get_audio()`` to feed an *independent* mix, or
+        ``ctx.get_video()``/``ctx.get_audio()`` to mirror the main mix. Either
+        may be ``None`` to leave that stream unbound.
+        """
+        get_lib().obs_output_set_media(
+            self._ptr,
+            video if video else ffi.NULL,
+            audio if audio else ffi.NULL,
+        )
+
     def set_service(self, service: Service) -> None:
         get_lib().obs_output_set_service(self._ptr, service._ptr)
 

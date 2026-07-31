@@ -1135,10 +1135,6 @@ STUB_DECLS = """
     void obs_source_get_type_data(void);
     void obs_source_get_unversioned_id(void);
     void obs_source_get_weak_source(void);
-    void obs_view_add(void);
-    void obs_view_add2(void);
-    void obs_view_create(void);
-    void obs_view_get_source(void);
     void obs_weak_canvas_get_canvas(void);
     void obs_weak_encoder_get_encoder(void);
     void obs_weak_object_get_object(void);

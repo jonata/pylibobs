@@ -43,6 +43,7 @@ from .encoder import VideoEncoder, AudioEncoder
 from .service import Service
 from .output import Output
 from .display import Display, render_main_texture_letterboxed
+from .view import View
 from .properties import (
     Properties, Property, PropertyType, ComboFormat, ListItem,
     IntRange, FloatRange, TextInfo, PathInfo,
@@ -82,7 +83,7 @@ from .enumeration import (
     set_audio_monitoring_device, get_audio_monitoring_device,
 )
 
-__version__ = "0.0.1"
+__version__ = "0.1.0"
 __all__ = [
     "OBSContext",
     "NixPlatform",
@@ -99,6 +100,7 @@ __all__ = [
     "Service",
     "Output",
     "Display",
+    "View",
     "render_main_texture_letterboxed",
     "Properties",
     "Property",

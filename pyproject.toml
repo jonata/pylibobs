@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name        = "pylibobs"
-version     = "0.0.1"
+version     = "0.1.0"
 description = "Python bindings for libobs (the core of OBS Studio) — capture, mix, record, stream"
 readme      = "README.md"
 license     = { text = "GPL-2.0-or-later" }

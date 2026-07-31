@@ -285,6 +285,20 @@ class OBSContext:
             raise RuntimeError("obs_reset_audio failed.")
 
     # ------------------------------------------------------------------
+    # Main-mix handles — raw video_t*/audio_t* for Output.set_media()
+    # ------------------------------------------------------------------
+
+    def get_video(self):
+        """Return the main mix's ``video_t*`` (raw cffi handle), or None."""
+        ptr = get_lib().obs_get_video()
+        return ptr if ptr != ffi.NULL else None
+
+    def get_audio(self):
+        """Return the main mix's ``audio_t*`` (raw cffi handle), or None."""
+        ptr = get_lib().obs_get_audio()
+        return ptr if ptr != ffi.NULL else None
+
+    # ------------------------------------------------------------------
     # Module loading
     # ------------------------------------------------------------------
 

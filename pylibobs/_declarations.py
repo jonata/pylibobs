@@ -1312,6 +1312,25 @@ _MEDIA_REMUX = """
     void media_remux_job_destroy(media_remux_job_t job);
 """
 
+# ---------------------------------------------------------------------------
+# obs_view — an independent set of channels (0–5) with its own composited
+# video mix, separate from the global obs_set_output_source() channels. A raw
+# output binds to the video_t returned by obs_view_add(), giving a second
+# "program" that can show a different composition from the main preview/mix.
+#
+# The generator emits these four as stubs (it can't parse the video_t*/
+# obs_view_t* returns), so they are declared here by hand — placed AFTER
+# AUTO_DECLS/STUB_DECLS so obs_view_t (PREAMBLE), video_t (_COMMON),
+# obs_source_t and struct obs_video_info (_STRUCTS) are all already defined.
+# Declaring them manually also removes them from the generator's re-stub set.
+# ---------------------------------------------------------------------------
+_OBS_VIEW = """
+    obs_view_t   *obs_view_create(void);
+    video_t      *obs_view_add(obs_view_t *view);
+    video_t      *obs_view_add2(obs_view_t *view, struct obs_video_info *ovi);
+    obs_source_t *obs_view_get_source(obs_view_t *view, uint32_t channel);
+"""
+
 
 ALL_DECLS = "\n".join([_COMMON, _ENUMS, _STRUCTS, _CORE, _DATA, _SOURCE, _SCENE,
                        _ENCODER, _SERVICE, _OUTPUT, _SIGNALS,
@@ -1324,4 +1343,4 @@ ALL_DECLS = "\n".join([_COMMON, _ENUMS, _STRUCTS, _CORE, _DATA, _SOURCE, _SCENE,
                        AUTO_DECLS,
                        STUB_DECLS,
                        # Must come after AUTO_DECLS — uses its typedefs
-                       _AUDIO_RESAMPLER, _MEDIA_REMUX])
+                       _AUDIO_RESAMPLER, _MEDIA_REMUX, _OBS_VIEW])
