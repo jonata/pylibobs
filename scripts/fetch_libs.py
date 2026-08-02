@@ -39,6 +39,13 @@ except ImportError:
 
 REPO       = "obsproject/obs-studio"
 GITHUB_API = f"https://api.github.com/repos/{REPO}/releases"
+
+#: The OBS release every bundled binary is fetched from, pinned so the shipped
+#: ABI is reproducible. libobs refuses to load a plugin whose `obs_module_ver`
+#: disagrees with `obs_get_version`, so any custom module (solin-framesrc, a
+#: branded virtual-camera filter) must be built against THIS tag's headers and
+#: import lib. Tracking "latest" instead silently moves that target mid-build.
+DEFAULT_OBS_TAG = "32.1.2"
 LIBS_DIR   = Path(__file__).parent.parent / "pylibobs" / "_libs"
 
 # --------------------------------------------------------------------------
@@ -464,7 +471,12 @@ _TRIM_GLOBS = [
     "**/obs-browser*",
     "**/libcef*", "**/cef_*",
     "**/libEGL*", "**/libGLESv2*",
-    "**/chrome_elf*", "**/d3dcompiler_*",
+    "**/chrome_elf*",
+    # d3dcompiler_* is no longer trimmed, though it turns out not to matter for
+    # the OBS zips we fetch: 32.1.2 ships no d3dcompiler at all. libobs-d3d11
+    # compiles its HLSL .effect files at runtime and resolves the compiler from
+    # System32, where Windows provides it. Keeping the pattern un-trimmed simply
+    # means a future OBS build that *does* bundle one would not lose it.
     "**/snapshot_blob*", "**/v8_*",
     "**/icudtl.dat", "**/resources.pak", "**/chrome_*.pak",
     "**/Resources/locales",
@@ -594,11 +606,14 @@ def main() -> int:
                     help="Override platform (windows / linux / macos)")
     ap.add_argument("--arch", default=None,
                     help="Override arch (x86_64 / arm64)")
-    ap.add_argument("--version", default=None,
-                    help="OBS Studio version tag, e.g. 32.2.1")
+    ap.add_argument("--version", default=DEFAULT_OBS_TAG,
+                    help=f"OBS Studio version tag (default: {DEFAULT_OBS_TAG})")
+    ap.add_argument("--latest", action="store_true",
+                    help="Track the newest OBS release instead of the pinned tag "
+                         "(non-reproducible: the bundled ABI can change under you)")
     args = ap.parse_args()
 
-    release = get_release(args.version)
+    release = get_release(None if args.latest else args.version)
     print(f"Using OBS release: {release.get('tag_name', '?')}\n")
 
     cache = Path(__file__).parent / ".fetch_cache"

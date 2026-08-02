@@ -63,12 +63,71 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import sys
-          base = Path("pylibobs/_libs/${{ matrix.target_os }}/${{ matrix.target_arch }}")
+
+          target_os = "${{ matrix.target_os }}"
+          base = Path(f"pylibobs/_libs/{target_os}/${{ matrix.target_arch }}")
           if not base.exists():
               sys.exit(f"Missing {base}")
+
+          # The bundle is only useful if these specific artefacts survive the
+          # trim. Checking the directory merely *exists* lets an empty or
+          # half-extracted bundle ship — which is how a wheel that cannot start
+          # libobs at all gets published.
+          required = {
+              "windows": [
+                  "obs.dll",
+                  "libobs-d3d11.dll",
+                  # NB: d3dcompiler_47.dll is deliberately NOT asserted. libobs
+                  # needs it to compile its HLSL .effect files at runtime, but
+                  # OBS does not ship it — verified against the 32.1.2 zip, which
+                  # contains no d3dcompiler at all. It is a Windows system
+                  # component resolved from System32.
+                  "obs-ffmpeg-mux.exe",
+                  "obs-plugins/obs-ffmpeg.dll",
+                  "obs-plugins/image-source.dll",
+                  "obs-plugins/obs-transitions.dll",
+                  # win-dshow provides BOTH the camera input and virtualcam_output.
+                  "obs-plugins/win-dshow.dll",
+                  # The DirectShow filter the conferencing app loads in-process;
+                  # without it the vcam starts but no app can see it.
+                  "data/obs-plugins/win-dshow/obs-virtualcam-module64.dll",
+                  "data/obs-plugins/win-dshow/obs-virtualcam-module32.dll",
+                  "data/libobs",
+              ],
+              "linux": [
+                  "libobs.so*",
+                  "libobs-opengl.so*",
+                  "obs-plugins/obs-ffmpeg.so",
+                  "obs-plugins/image-source.so",
+                  "obs-plugins/obs-transitions.so",
+                  # linux-v4l2 registers virtualcam_output on Linux.
+                  "obs-plugins/linux-v4l2.so",
+                  "data/libobs",
+              ],
+              "macos": [
+                  # The dmg lays the framework out under Frameworks/, not at the
+                  # bundle root.
+                  "Frameworks/libobs.dylib",
+                  "data/libobs",
+              ],
+          }.get(target_os, [])
+
+          # Glob rather than exact names: Linux ships versioned sonames
+          # (libobs.so.0, libobs-opengl.so.30) and which symlinks survive the
+          # .deb extraction varies by release.
+          missing = [rel for rel in required if not list(base.glob(rel))]
+          if missing:
+              for rel in missing:
+                  print(f"  MISSING: {base / rel}")
+              print("--- what IS present ---")
+              for entry in sorted(base.rglob("*"))[:60]:
+                  print(f"  {entry.relative_to(base)}")
+              sys.exit(f"{len(missing)} required artefact(s) absent from {base}")
+
           files = list(base.rglob("*"))
           total = sum(f.stat().st_size for f in files if f.is_file())
           print(f"Bundled {len(files)} files / {total/1e6:.1f} MB in {base}")
+          print(f"Verified {len(required)} required artefacts present.")
           PY
         shell: bash
 
