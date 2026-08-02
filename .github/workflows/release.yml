@@ -108,7 +108,9 @@ jobs:
                   # The dmg lays the framework out under Frameworks/, not at the
                   # bundle root.
                   "Frameworks/libobs.dylib",
-                  "data/libobs",
+                  # macOS keeps the shader effects inside the framework bundle
+                  # rather than in a data/ tree like Windows and Linux.
+                  "Frameworks/libobs.framework/Versions/A/Resources/*.effect",
               ],
           }.get(target_os, [])
 
