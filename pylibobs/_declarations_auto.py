@@ -953,14 +953,13 @@ STUB_DECLS = """
     void gs_shader_get_param_by_name(void);
     void gs_shader_get_viewproj_matrix(void);
     void gs_shader_get_world_matrix(void);
-    void gs_stagesurface_create(void);
+    /* gs_stagesurface_create declared by _GRAPHICS_READBACK in _declarations.py */
     void gs_stagesurface_create_nv12(void);
     void gs_stagesurface_create_p010(void);
     void gs_swapchain_create(void);
     void gs_technique_get_pass_by_idx(void);
     void gs_technique_get_pass_by_name(void);
-    void gs_texrender_create(void);
-    void gs_texrender_get_texture(void);
+    /* gs_texrender_create / gs_texrender_get_texture declared by _GRAPHICS_READBACK */
     void gs_texture_create(void);
     void gs_texture_create_from_file(void);
     void gs_texture_create_gdi(void);

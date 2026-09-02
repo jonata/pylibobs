@@ -1331,6 +1331,26 @@ _OBS_VIEW = """
     obs_source_t *obs_view_get_source(obs_view_t *view, uint32_t channel);
 """
 
+# ---------------------------------------------------------------------------
+# Offscreen readback — render any source into a texrender and stage it back to
+# CPU memory (BGRA). The generator emits gs_stagesurface_create /
+# gs_texrender_create / gs_texrender_get_texture as stubs (it can't parse their
+# gs_stagesurf_t* / gs_texrender_t* / gs_texture_t* returns), so they are
+# declared by hand here — which also removes them from the generator's re-stub
+# set. The rest of the readback API (map/unmap/stage/begin/end/reset/destroy) is
+# auto-extracted. `struct vec4` is completed here so a gs_clear() colour can be
+# built (it is otherwise opaque in PREAMBLE).
+# ---------------------------------------------------------------------------
+_GRAPHICS_READBACK = """
+    struct vec4 { float x; float y; float z; float w; };
+
+    gs_stagesurf_t *gs_stagesurface_create(uint32_t width, uint32_t height,
+                                           enum gs_color_format color_format);
+    gs_texrender_t *gs_texrender_create(enum gs_color_format format,
+                                        enum gs_zstencil_format zsformat);
+    gs_texture_t   *gs_texrender_get_texture(const gs_texrender_t *texrender);
+"""
+
 
 ALL_DECLS = "\n".join([_COMMON, _ENUMS, _STRUCTS, _CORE, _DATA, _SOURCE, _SCENE,
                        _ENCODER, _SERVICE, _OUTPUT, _SIGNALS,
@@ -1343,4 +1363,5 @@ ALL_DECLS = "\n".join([_COMMON, _ENUMS, _STRUCTS, _CORE, _DATA, _SOURCE, _SCENE,
                        AUTO_DECLS,
                        STUB_DECLS,
                        # Must come after AUTO_DECLS — uses its typedefs
-                       _AUDIO_RESAMPLER, _MEDIA_REMUX, _OBS_VIEW])
+                       _AUDIO_RESAMPLER, _MEDIA_REMUX, _OBS_VIEW,
+                       _GRAPHICS_READBACK])

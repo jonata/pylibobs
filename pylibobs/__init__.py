@@ -43,6 +43,7 @@ from .encoder import VideoEncoder, AudioEncoder
 from .service import Service
 from .output import Output
 from .display import Display, render_main_texture_letterboxed
+from .graphics import render_source_to_bgra
 from .view import View
 from .properties import (
     Properties, Property, PropertyType, ComboFormat, ListItem,
@@ -102,6 +103,7 @@ __all__ = [
     "Display",
     "View",
     "render_main_texture_letterboxed",
+    "render_source_to_bgra",
     "Properties",
     "Property",
     "PropertyType",
