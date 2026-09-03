@@ -58,19 +58,12 @@ def _open_x11_display() -> int:
     return 0
 
 
-def render_main_texture_letterboxed(canvas_w: int, canvas_h: int,
-                                    widget_w: int, widget_h: int) -> None:
-    """
-    Render the main OBS canvas into the current widget viewport with
-    letterboxing so the aspect ratio is preserved.
-
-    Call this inside a Display draw callback. It clears nothing; the
-    display's background_color (set at create time) fills the bars.
-    """
+def _letterbox_viewport(canvas_w: int, canvas_h: int,
+                        widget_w: int, widget_h: int):
+    """(x, y, out_w, out_h) fitting the canvas into the widget, or None if any
+    dimension is non-positive."""
     if canvas_w <= 0 or canvas_h <= 0 or widget_w <= 0 or widget_h <= 0:
-        return
-
-    # Compute fit
+        return None
     src_aspect = canvas_w / canvas_h
     dst_aspect = widget_w / widget_h
     if dst_aspect > src_aspect:
@@ -87,12 +80,52 @@ def render_main_texture_letterboxed(canvas_w: int, canvas_h: int,
         out_h = int(canvas_h * scale)
         x = 0
         y = (widget_h - out_h) // 2
+    return x, y, out_w, out_h
 
+
+def render_main_texture_letterboxed(canvas_w: int, canvas_h: int,
+                                    widget_w: int, widget_h: int) -> None:
+    """
+    Render the main OBS canvas into the current widget viewport with
+    letterboxing so the aspect ratio is preserved.
+
+    Call this inside a Display draw callback. It clears nothing; the
+    display's background_color (set at create time) fills the bars.
+    """
+    viewport = _letterbox_viewport(canvas_w, canvas_h, widget_w, widget_h)
+    if viewport is None:
+        return
+    x, y, out_w, out_h = viewport
     lib = get_lib()
     lib.gs_projection_push()
     lib.gs_set_viewport(x, y, out_w, out_h)
     lib.gs_ortho(0.0, float(canvas_w), 0.0, float(canvas_h), -100.0, 100.0)
     lib.obs_render_main_texture()
+    lib.gs_projection_pop()
+
+
+def render_source_letterboxed(source_ptr, canvas_w: int, canvas_h: int,
+                              widget_w: int, widget_h: int) -> None:
+    """
+    Render ONE obs source (e.g. a scene's ``as_source``) into the current widget
+    viewport, letterboxed — the per-source analogue of
+    :func:`render_main_texture_letterboxed`.
+
+    Call this inside a Display draw callback (it runs in the graphics context with
+    the window backbuffer bound, so no offscreen texrender/readback is needed). A
+    NULL/zero ``source_ptr`` renders nothing, leaving the display background.
+    """
+    if not source_ptr:
+        return
+    viewport = _letterbox_viewport(canvas_w, canvas_h, widget_w, widget_h)
+    if viewport is None:
+        return
+    x, y, out_w, out_h = viewport
+    lib = get_lib()
+    lib.gs_projection_push()
+    lib.gs_set_viewport(x, y, out_w, out_h)
+    lib.gs_ortho(0.0, float(canvas_w), 0.0, float(canvas_h), -100.0, 100.0)
+    lib.obs_source_video_render(source_ptr)
     lib.gs_projection_pop()
 
 
