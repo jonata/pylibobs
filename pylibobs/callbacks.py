@@ -40,6 +40,26 @@ from ._ffi import ffi, get_lib
 _MAX_PLANES = 8     # libobs MAX_AV_PLANES
 _BYTES_PER_SAMPLE = 4   # libobs's mixed audio is always float32 planar
 
+# Vertical subsampling per plane for the planar/semi-planar video formats, keyed
+# by `VideoFormat` value. A plane's byte count is `linesize * (height // divisor)`;
+# chroma planes of 4:2:0 formats hold only height/2 rows, so sizing every plane at
+# the full height over-reads past the frame allocation (an out-of-bounds read that
+# can crash). Formats absent here are packed single-plane — full height everywhere.
+_PLANE_ROW_DIVISORS: dict[int, tuple[int, ...]] = {
+    1: (1, 2, 2),   # I420  (Y, U/2, V/2)
+    2: (1, 2),      # NV12  (Y, interleaved UV/2)
+    10: (1, 1, 1),  # I444  (full-res chroma)
+    12: (1, 1, 1),  # I422  (chroma subsampled horizontally only)
+}
+
+
+def _plane_row_count(video_format: int, plane_index: int, height: int) -> int:
+    """Rows of pixels in a plane: full height, halved for 4:2:0 chroma planes."""
+    divisors = _PLANE_ROW_DIVISORS.get(int(video_format))
+    if divisors is not None and plane_index < len(divisors):
+        return height // divisors[plane_index]
+    return height
+
 
 # ---------------------------------------------------------------------------
 # Keep cffi callback trampolines alive — libobs holds raw function pointers.
@@ -276,7 +296,7 @@ def add_raw_video_callback(
                 if p == ffi.NULL or ls == 0:
                     planes.append(b"")
                 else:
-                    planes.append(bytes(ffi.buffer(p, ls * h)))
+                    planes.append(bytes(ffi.buffer(p, ls * _plane_row_count(out_f, i, h))))
             fn(planes, linesizes, out_w, out_h, out_f, int(frame.timestamp))
         except Exception:
             pass
