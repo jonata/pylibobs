@@ -1352,6 +1352,35 @@ _GRAPHICS_READBACK = """
 """
 
 
+# ---------------------------------------------------------------------------
+# Frame injection — completing `struct obs_source_frame` so a frame can be built
+# and handed to obs_source_output_video(). The generator leaves it opaque (it is
+# forward-declared in PREAMBLE), so the layout is completed here, as `struct vec4`
+# is for gs_clear(). Verified against libobs 32.x: data@0, linesize@64, width@96,
+# height@100, timestamp@104, format@112.
+# ---------------------------------------------------------------------------
+_FRAME_SOURCE = """
+    struct obs_source_frame {
+        uint8_t *data[8];
+        uint32_t linesize[8];
+        uint32_t width;
+        uint32_t height;
+        uint64_t timestamp;
+        int format;
+        float color_matrix[16];
+        bool full_range;
+        uint16_t max_luminance;
+        float color_range_min[3];
+        float color_range_max[3];
+        bool flip;
+        uint8_t flags;
+        uint8_t trc;
+        long refs;
+        bool prev_frame;
+    };
+"""
+
+
 ALL_DECLS = "\n".join([_COMMON, _ENUMS, _STRUCTS, _CORE, _DATA, _SOURCE, _SCENE,
                        _ENCODER, _SERVICE, _OUTPUT, _SIGNALS,
                        _FILTERS, _TRANSITIONS, _HOTKEYS, _VOLMETER, _FADER,
@@ -1364,4 +1393,4 @@ ALL_DECLS = "\n".join([_COMMON, _ENUMS, _STRUCTS, _CORE, _DATA, _SOURCE, _SCENE,
                        STUB_DECLS,
                        # Must come after AUTO_DECLS — uses its typedefs
                        _AUDIO_RESAMPLER, _MEDIA_REMUX, _OBS_VIEW,
-                       _GRAPHICS_READBACK])
+                       _GRAPHICS_READBACK, _FRAME_SOURCE])
