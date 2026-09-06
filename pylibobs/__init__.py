@@ -44,6 +44,12 @@ from .service import Service
 from .output import Output
 from .display import Display, render_main_texture_letterboxed
 from .graphics import render_source_to_bgra
+from .frame_source import (
+    FRAME_SOURCE_ID,
+    enum_source_types,
+    push_video_frame,
+    register_frame_source,
+)
 from .view import View
 from .properties import (
     Properties, Property, PropertyType, ComboFormat, ListItem,
@@ -104,6 +110,10 @@ __all__ = [
     "View",
     "render_main_texture_letterboxed",
     "render_source_to_bgra",
+    "FRAME_SOURCE_ID",
+    "register_frame_source",
+    "push_video_frame",
+    "enum_source_types",
     "Properties",
     "Property",
     "PropertyType",
