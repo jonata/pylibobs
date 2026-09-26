@@ -68,6 +68,12 @@ pylibobs = [
     "_libs/**/.*",
 ]
 
+[tool.setuptools.exclude-package-data]
+# Backups left by scripts/build_patched_plugin.py (and any stray *.orig) are
+# build-time conveniences, never loaded — libobs globs *.so — so they have no
+# business in a published wheel.
+pylibobs = ["_libs/**/*.stock", "_libs/**/*.orig"]
+
 # --------------------------------------------------------------------------
 # pytest
 # --------------------------------------------------------------------------

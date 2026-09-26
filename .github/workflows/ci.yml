@@ -94,3 +94,34 @@ jobs:
           assert "linux/x86_64" in path, "didn't pick bundled libobs"
           print("OK")
           PY
+
+  # ------------------------------------------------------------------
+  # The bundled obs-ffmpeg is rebuilt from patched OBS sources at wheel
+  # build time (see scripts/build_patched_plugin.py). Building it here
+  # would blow this workflow's time budget, so just prove the patch
+  # still applies to the pinned tag — that is what silently rots when
+  # DEFAULT_OBS_TAG moves, and it would only surface during a release.
+  # ------------------------------------------------------------------
+  patch-applies:
+    name: Patch / applies to the pinned OBS tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install fetch_libs deps
+        # fetch_libs.py sys.exit()s at import time without requests, which
+        # would abort the tag lookup below before it ever runs.
+        run: pip install requests
+      - name: Clone the pinned OBS tag
+        run: |
+          TAG=$(python -c "import sys; sys.path.insert(0, 'scripts'); from fetch_libs import DEFAULT_OBS_TAG; print(DEFAULT_OBS_TAG)")
+          echo "Pinned OBS tag: $TAG"
+          git clone --depth 1 --branch "$TAG" https://github.com/obsproject/obs-studio.git obs-src
+      - name: git apply --check
+        run: |
+          cd obs-src
+          git apply --check --verbose ../patches/preserve-audio-pitch.patch
+          echo "patch applies cleanly"

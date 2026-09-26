@@ -17,3 +17,7 @@ prune scripts/.fetch_cache
 # Test files don't ship in the installed package — they're only in the repo.
 prune tests
 prune examples
+
+# The patch applied to the bundled obs-ffmpeg — scripts/build_patched_plugin.py
+# needs it when rebuilding from an sdist.
+recursive-include patches *.patch

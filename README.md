@@ -59,7 +59,7 @@ Maintainers / contributors can refresh the bundled libs by running:
 ```bash
 python scripts/fetch_libs.py                  # current platform
 python scripts/fetch_libs.py --all            # every platform
-python scripts/fetch_libs.py --version 32.1.2 # pin OBS version
+python scripts/fetch_libs.py --version 32.2.1 # pin OBS version
 ```
 
 This downloads libobs from the official OBS GitHub release. The `_libs/` tree is `.gitignore`d
@@ -177,8 +177,41 @@ pylibobs/
 ├── tests/unit/            # Mocked tests
 ├── tests/integration/     # Real libobs tests
 ├── scripts/fetch_libs.py  # Pull libobs from OBS releases
+├── scripts/build_patched_plugin.py  # Rebuild obs-ffmpeg from patched sources
+├── patches/               # Patches applied to the bundled OBS sources
 └── examples/              # record_to_file.py, stream_to_rtmp.py
 ```
+
+### Bundled Media Source keeps audio pitch
+
+Stock OBS plays a media source at a scaled sample rate when its speed is not
+100%, so the pitch rises and falls with the tempo — a voice at 150% sounds high
+and thin, music is off-key. The Linux wheels bundle an `obs-ffmpeg` plugin built
+from `patches/preserve-audio-pitch.patch`, which time-stretches the audio
+instead (an FFmpeg `atempo` chain), so the pitch stays put at any speed:
+
+```python
+media = Source.create("ffmpeg_source", "clip", {
+    "is_local_file": True, "local_file": "talk.mp4",
+    "speed_percent": 150,          # plays 1.5x faster, same pitch
+})
+```
+
+The patch only touches `shared/media-playback/`, which is compiled into
+`obs-ffmpeg`; `libobs` and every other plugin are the stock release binaries. To
+rebuild it locally after `fetch_libs.py` (Linux x86_64, build deps listed in the
+script's docstring):
+
+```bash
+python scripts/fetch_libs.py --platform linux --arch x86_64
+python scripts/build_patched_plugin.py
+```
+
+The script builds from the OBS tag `fetch_libs.py` pins and refuses to install a
+plugin whose version disagrees with the bundled `libobs`. **Windows and macOS
+wheels ship the stock plugin**, so speed changes there still shift the pitch.
+`tests/integration/test_media_pitch.py` records a 1 kHz tone at 150% and checks
+which behaviour the bundle actually has.
 
 ---
 

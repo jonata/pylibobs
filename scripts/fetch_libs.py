@@ -45,7 +45,10 @@ GITHUB_API = f"https://api.github.com/repos/{REPO}/releases"
 #: disagrees with `obs_get_version`, so any custom module (solin-framesrc, a
 #: branded virtual-camera filter) must be built against THIS tag's headers and
 #: import lib. Tracking "latest" instead silently moves that target mid-build.
-DEFAULT_OBS_TAG = "32.1.2"
+#: Keep this in sync with `patches/` — scripts/build_patched_plugin.py builds
+#: the bundled obs-ffmpeg from THIS tag's sources, and libobs only loads a
+#: module whose version matches.
+DEFAULT_OBS_TAG = "32.2.1"
 LIBS_DIR   = Path(__file__).parent.parent / "pylibobs" / "_libs"
 
 # --------------------------------------------------------------------------

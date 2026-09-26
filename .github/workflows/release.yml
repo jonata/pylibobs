@@ -23,7 +23,13 @@ jobs:
           - os: windows-latest
             target_os: windows
             target_arch: x86_64
-          - os: ubuntu-latest
+          # Pinned, NOT ubuntu-latest: this job compiles obs-ffmpeg against
+          # the runner's system FFmpeg, while libobs and every other bundled
+          # binary come from OBS's Ubuntu 24.04 .deb (see asset_re in
+          # scripts/fetch_libs.py). A runner rollover would link the plugin
+          # against a newer libavcodec soname than the rest of the bundle,
+          # and it would silently fail to load. The two pins move together.
+          - os: ubuntu-24.04
             target_os: linux
             target_arch: x86_64
           # Apple Silicon only — Apple stopped shipping Intel Macs in
@@ -56,6 +62,30 @@ jobs:
           python scripts/fetch_libs.py \
             --platform ${{ matrix.target_os }} \
             --arch ${{ matrix.target_arch }}
+        shell: bash
+
+      # The downloaded obs-ffmpeg is stock, so the Media Source resamples audio
+      # when its speed is not 100% and the pitch shifts with it. Rebuild that
+      # one plugin from the same OBS tag with patches/preserve-audio-pitch.patch
+      # applied. Linux only: Windows and macOS wheels keep the stock plugin.
+      - name: Build patched obs-ffmpeg (Linux)
+        if: matrix.target_os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config \
+            libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev \
+            libavutil-dev libswresample-dev libswscale-dev libcurl4-openssl-dev \
+            libjansson-dev libpulse-dev libx11-dev libx11-xcb-dev libxcb1-dev \
+            libxcb-randr0-dev libxcb-shm0-dev libxcb-xfixes0-dev libxcb-xinerama0-dev \
+            libxcomposite-dev libxinerama-dev libgl1-mesa-dev libwayland-dev \
+            libpipewire-0.3-dev libdrm-dev libva-dev libv4l-dev libudev-dev \
+            libasound2-dev libfontconfig-dev libfreetype-dev libpci-dev \
+            librist-dev libsrt-openssl-dev libspeexdsp-dev libssl-dev uuid-dev \
+            libxkbcommon-dev libsimde-dev uthash-dev nlohmann-json3-dev \
+            libqrcodegencpp-dev extra-cmake-modules qt6-base-dev libx264-dev \
+            patchelf
+          python scripts/build_patched_plugin.py
         shell: bash
 
       - name: Verify bundled libs are in place
@@ -125,6 +155,17 @@ jobs:
               for entry in sorted(base.rglob("*"))[:60]:
                   print(f"  {entry.relative_to(base)}")
               sys.exit(f"{len(missing)} required artefact(s) absent from {base}")
+
+          # obs-ffmpeg.so is the one artefact that is not merely downloaded:
+          # it is rebuilt from patched sources above. The glob check is happy
+          # with the stock download, so assert the patch is actually in there —
+          # this step has no `if:`, so matrix drift cannot skip it.
+          if target_os == "linux":
+              plugin = base / "obs-plugins" / "obs-ffmpeg.so"
+              if b"atempo=" not in plugin.read_bytes():
+                  sys.exit(f"{plugin} is the stock build — the patched plugin step "
+                           "did not run, so the Media Source would shift pitch with speed.")
+              print("Verified obs-ffmpeg carries patches/preserve-audio-pitch.patch")
 
           files = list(base.rglob("*"))
           total = sum(f.stat().st_size for f in files if f.is_file())
