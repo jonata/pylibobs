@@ -110,11 +110,13 @@ ALREADY_TYPES = {
     "obs_source_enum_filters_cb_t","obs_source_enum_proc_t",
     "obs_encoder_roi_cb_t","obs_output_packet_cb_t",
     "obs_display_draw_callback_t","obs_load_source_cb","obs_hotkey_enum_func",
+    "obs_find_module_callback_t",
 }
 ALREADY_STRUCTS = {
     "obs_video_info","obs_audio_info","gs_window","gs_init_data","calldata",
     "obs_key_combination","vec2","video_data","audio_data","video_scale_info",
     "obs_transform_info","obs_sceneitem_crop","obs_encoder_roi","encoder_packet",
+    "obs_module_info",
 }
 ALREADY_ENUMS = {
     "obs_video_err","video_format","speaker_layout","obs_scale_type",
@@ -125,6 +127,20 @@ ALREADY_ENUMS = {
 }
 
 
+#: Third-party code vendored inside libobs/, not part of its API. libnsgif's
+#: function-pointer members (`nsgif_bitmap_t *(*create)(int width, ...)`) fool
+#: the typedef regexes into emitting typedefs named `create`, `width` and `x0`,
+#: which then break any struct field with those names in the cdef.
+VENDORED_DIRS = ("graphics/libnsgif",)
+
+
+def public_headers():
+    for hdr in sorted(HEADERS_ROOT.rglob("*.h")):
+        rel = hdr.relative_to(HEADERS_ROOT).as_posix()
+        if not rel.startswith(VENDORED_DIRS):
+            yield hdr
+
+
 def collect_referenced_types(decls):
     structs, enums, typedefs = set(), set(), set()
     sre = re.compile(r"\bstruct\s+([A-Za-z_]\w*)")
@@ -132,7 +148,7 @@ def collect_referenced_types(decls):
     for line in decls:
         for m in sre.finditer(line): structs.add(m.group(1))
         for m in ere.finditer(line): enums.add(m.group(1))
-    for hdr in sorted(HEADERS_ROOT.rglob("*.h")):
+    for hdr in public_headers():
         try:
             text = strip_comments(hdr.read_text(encoding="utf-8", errors="replace"))
         except Exception:
@@ -179,7 +195,7 @@ def main():
     missing = public - have
 
     found = {}
-    for hdr in sorted(HEADERS_ROOT.rglob("*.h")):
+    for hdr in public_headers():
         try: text = hdr.read_text(encoding="utf-8", errors="replace")
         except Exception: continue
         for name, decl in extract_funcs(text):

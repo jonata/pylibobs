@@ -336,3 +336,66 @@ def get_bundled_modules() -> list[tuple[str, str, str]]:
         data_path = data_tmpl.replace("%module%", name)
         modules.append((name, str(so), data_path))
     return modules
+
+
+#: Core modules of a system OBS that build Qt widgets: they abort a process
+#: with no QApplication, which pylibobs never creates. The bundled wheel drops
+#: them at fetch time (scripts/fetch_libs.py); a system install still has them.
+QT_FRONTEND_MODULES = frozenset({
+    "frontend-tools", "decklink-output-ui", "aja-output-ui", "obs-websocket",
+})
+
+
+def get_system_core_modules() -> list[tuple[str, str, str]]:
+    """Enumerate the core modules of a system OBS 33+ install, as
+    ``(name, bin_path, data_path)`` tuples, minus :data:`QT_FRONTEND_MODULES`.
+
+    OBS 33 installs its bundled plugins as "core modules" and loads them with
+    ``obs_load_core_modules()``, which looks for them relative to the host
+    *executable*. For pylibobs that is the Python interpreter, so libobs never
+    finds them, and ``obs_load_all_modules()`` is an empty stub in 33. The
+    modules are found here relative to libobs itself instead:
+
+      Linux:   <libdir>/obs-modules/core/<name>.so,
+               data in <prefix>/share/obs/obs-modules/core/<name>/
+      Windows: <root>/bin/64bit/obs.dll → <root>/core/<name>/<name>.dll,
+               data in <root>/core/<name>/data/
+
+    Returns an empty list for older installs (obs-plugins/ layout) or when
+    libobs can't be found.
+    """
+    try:
+        lib_dir = Path(find_libobs()).resolve().parent
+    except ImportError:
+        return []
+    system = platform.system()
+    modules: list[tuple[str, str, str]] = []
+
+    if system == "Linux":
+        core_bin = lib_dir / "obs-modules" / "core"
+        if not core_bin.is_dir():
+            return []
+        # <prefix>/lib/<triplet>/ or <prefix>/lib/ — the share dir is 1–2 up.
+        core_data = next((p / "share" / "obs" / "obs-modules" / "core"
+                          for p in (lib_dir.parent, lib_dir.parent.parent)
+                          if (p / "share" / "obs" / "obs-modules" / "core").is_dir()),
+                         None)
+        if core_data is None:
+            return []
+        for so in sorted(core_bin.glob("*.so")):
+            # obs-browser's Chromium runtime (libcef.so, libEGL.so, …) sits
+            # beside the modules; opening it as one would load Chromium.
+            if so.stem.startswith("lib"):
+                continue
+            modules.append((so.stem, str(so), str(core_data / so.stem)))
+
+    elif system == "Windows":
+        core = lib_dir.parent.parent / "core"
+        if not core.is_dir():
+            return []
+        for mod_dir in sorted(p for p in core.iterdir() if p.is_dir()):
+            dll = mod_dir / f"{mod_dir.name}.dll"
+            if dll.exists():
+                modules.append((mod_dir.name, str(dll), str(mod_dir / "data")))
+
+    return [m for m in modules if m[0] not in QT_FRONTEND_MODULES]

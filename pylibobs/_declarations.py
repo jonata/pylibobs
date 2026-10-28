@@ -285,8 +285,18 @@ _CORE = """
     bool               obs_video_active(void);
 
     void obs_add_module_path(const char *bin, const char *data);
-    void obs_load_all_modules(void);
+    void obs_load_all_modules(void);   /* an empty stub since libobs 33.0 */
     void obs_post_load_modules(void);
+
+    /* Enumerates the modules under every obs_add_module_path() path without
+       loading them; OBSContext.load_modules() opens each one itself, as
+       libobs 33 no longer loads these paths for us. */
+    struct obs_module_info {
+        const char *bin_path;
+        const char *data_path;
+    };
+    typedef void (*obs_find_module_callback_t)(void *param, const struct obs_module_info *info);
+    void obs_find_modules(obs_find_module_callback_t callback, void *param);
 
     void obs_add_data_path(const char *path);
     bool obs_remove_data_path(const char *path);

@@ -9,7 +9,7 @@ reasons that need imperative Python code:
    binaries differ per OS / architecture. Overriding
    `Distribution.has_ext_modules()` to return True makes setuptools
    tag the wheel with the host's platform string (e.g. `win_amd64`,
-   `manylinux_2_31_x86_64`, `macosx_11_0_arm64`).
+   `manylinux_2_43_x86_64`, `macosx_11_0_arm64`).
 
 2. **Python-version-agnostic tag.** The Python code itself is pure
    Python (no compiled C extension specific to one CPython ABI), so
@@ -19,7 +19,7 @@ reasons that need imperative Python code:
 
 Together these produce wheels like:
     pylibobs-0.1.0-py3-none-win_amd64.whl
-    pylibobs-0.1.0-py3-none-manylinux_2_31_x86_64.whl
+    pylibobs-0.1.0-py3-none-manylinux_2_43_x86_64.whl
     pylibobs-0.1.0-py3-none-macosx_11_0_arm64.whl
 """
 from setuptools import setup

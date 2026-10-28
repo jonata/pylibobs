@@ -12,6 +12,7 @@ Usage::
 
 from __future__ import annotations
 
+import os
 import platform
 from enum import IntEnum
 
@@ -20,7 +21,10 @@ from ._ffi import ffi, get_lib, mark_alive, mark_dead, release_all_wrappers
 
 # libobs MAX_CHANNELS is 64 in the public ABI; conservatively clear that many.
 _MAX_OUTPUT_CHANNELS = 64
-from ._lib import get_bundled_modules, get_obs_data_dir, get_obs_module_dirs
+from ._lib import (
+    QT_FRONTEND_MODULES, get_bundled_modules, get_obs_data_dir, get_obs_module_dirs,
+    get_system_core_modules,
+)
 
 
 class VideoFormat(IntEnum):
@@ -309,35 +313,48 @@ class OBSContext:
     def load_modules(self, auto_detect: bool = True) -> None:
         """Load OBS plugin modules.
 
-        When plugins are bundled inside the wheel, they are loaded explicitly,
-        one by one, and libobs's default module scan is skipped. This keeps a
-        co-installed system OBS out of the picture — its Qt frontend plugins
-        (``frontend-tools``, ``decklink-output-ui``, …) abort the process when
-        libobs auto-loads them, because they build Qt widgets with no
-        ``QApplication`` (pylibobs is headless / embeds into a foreign toolkit).
+        Modules are opened explicitly, one by one, and libobs's own module
+        scan is avoided. That keeps the Qt frontend plugins of a system OBS
+        (``frontend-tools``, ``decklink-output-ui``, …) out: they abort the
+        process because they build Qt widgets with no ``QApplication``
+        (pylibobs is headless / embeds into a foreign toolkit).
 
-        Falls back to ``obs_load_all_modules`` against the resolved install
-        path when nothing is bundled (running against a system OBS).
+        With ``auto_detect``, the plugins bundled in the wheel are loaded or,
+        when nothing is bundled, those of a system OBS. Plugins under paths
+        given to :meth:`add_module_path` are loaded too.
+
+        libobs 33 made ``obs_load_all_modules`` an empty stub and looks for its
+        core modules next to the host *executable* (the Python interpreter),
+        so on 33+ every module, including those under added paths, is found
+        here and opened directly. Older libobs falls back to
+        ``obs_load_all_modules`` when nothing was found to open.
         """
         lib = get_lib()
 
-        bundled = get_bundled_modules() if auto_detect else []
-        if bundled:
-            for name, bin_path, data_path in bundled:
-                module_pp = ffi.new("obs_module_t **")
-                rc = lib.obs_open_module(module_pp,
-                                         bin_path.encode(), data_path.encode())
-                if rc != 0:                       # != MODULE_SUCCESS
-                    continue
-                lib.obs_init_module(module_pp[0])
-            lib.obs_post_load_modules()
-            return
-
+        modules: list[tuple[str, str, str]] = []
         if auto_detect:
-            bin_dir, data_dir = get_obs_module_dirs()
-            if bin_dir:
-                lib.obs_add_module_path(bin_dir.encode(), data_dir.encode())
-        lib.obs_load_all_modules()
+            modules = get_bundled_modules() or get_system_core_modules()
+            if not modules:
+                bin_dir, data_dir = get_obs_module_dirs()
+                if bin_dir:
+                    lib.obs_add_module_path(bin_dir.encode(), data_dir.encode())
+
+        if lib.obs_get_version() >> 24 >= 33:
+            seen = {name for name, _, _ in modules}
+            for module in _modules_in_added_paths():
+                if module[0] not in seen and module[0] not in QT_FRONTEND_MODULES:
+                    seen.add(module[0])
+                    modules.append(module)
+        elif not modules:
+            lib.obs_load_all_modules()
+
+        for _name, bin_path, data_path in modules:
+            module_pp = ffi.new("obs_module_t **")
+            rc = lib.obs_open_module(module_pp,
+                                     bin_path.encode(), data_path.encode())
+            if rc != 0:                       # != MODULE_SUCCESS
+                continue
+            lib.obs_init_module(module_pp[0])
         lib.obs_post_load_modules()
 
     # ------------------------------------------------------------------
@@ -418,6 +435,22 @@ class OBSContext:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _modules_in_added_paths() -> list[tuple[str, str, str]]:
+    """``(name, bin_path, data_path)`` of every module under the paths given to
+    ``obs_add_module_path``, found by libobs but not loaded."""
+    found: list[tuple[str, str, str]] = []
+
+    @ffi.callback("void(void *, const struct obs_module_info *)")
+    def _cb(_param, info):
+        bin_path = ffi.string(info.bin_path).decode("utf-8", "replace")
+        data_path = ffi.string(info.data_path).decode("utf-8", "replace")
+        name = os.path.splitext(os.path.basename(bin_path))[0]
+        found.append((name, bin_path, data_path))
+
+    get_lib().obs_find_modules(_cb, ffi.NULL)
+    return found
+
 
 def _default_config_dir() -> str:
     import os

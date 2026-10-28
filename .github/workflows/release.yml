@@ -45,7 +45,8 @@ jobs:
           - os: windows-latest
             target_os: windows
             target_arch: x86_64
-          - os: ubuntu-latest
+          # OBS 33.0's Linux build targets Ubuntu 26.04 (FFmpeg 8, glibc 2.43).
+          - os: ubuntu-26.04
             target_os: linux
             target_arch: x86_64
           # Apple Silicon only — Apple stopped shipping Intel Macs in
@@ -164,17 +165,34 @@ jobs:
       # Standard auditwheel-repair doesn't help here (it expects a C extension
       # to rewrite; we ship a pure-Python package with bundled .so's).
       # Instead we directly rename the wheel's platform tag using `wheel tags`,
-      # which is enough for PyPI: the bundled libobs.so.0 was extracted from
-      # the official OBS Ubuntu 24.04 .deb so it's already manylinux-friendly
-      # for any glibc 2.31+ system (Ubuntu 20.04+, Debian 11+, RHEL 9+, …).
+      # which is enough for PyPI. The tag must name the newest glibc symbol
+      # version the bundled binaries require: a lower tag lets pip install the
+      # wheel on a distro whose glibc can't load libobs. It is read from the
+      # binaries rather than hardcoded, since each OBS release moves it (33.0's
+      # Ubuntu 26.04 build needs glibc 2.43).
       - name: Re-tag Linux wheel as manylinux
         if: runner.os == 'Linux'
         # `wheel tags --remove` deletes the original wheel and writes the
         # retagged one into the same directory. No move dance needed.
         run: |
           pip install wheel
+          glibc_minor=$(python - <<'PY'
+          import re
+          from pathlib import Path
+          need = 0
+          for f in Path("pylibobs/_libs/linux").rglob("*"):
+              if f.is_file() and not f.is_symlink():
+                  data = f.read_bytes()
+                  if data[:4] == b"\x7fELF":
+                      need = max([need] + [int(m) for m in re.findall(rb"GLIBC_2\.(\d+)", data)])
+          if not need:
+              raise SystemExit("no GLIBC_2.x symbol versions found in the bundle")
+          print(need)
+          PY
+          )
+          echo "bundled binaries need glibc 2.${glibc_minor}"
           for whl in dist/*-linux_*.whl; do
-            python -m wheel tags --platform-tag manylinux_2_31_x86_64 --remove "$whl"
+            python -m wheel tags --platform-tag "manylinux_2_${glibc_minor}_x86_64" --remove "$whl"
           done
           ls -la dist/
         shell: bash

@@ -132,6 +132,21 @@ class Source:
     def volume(self, value: float) -> None:
         get_lib().obs_source_set_volume(self._ptr, float(value))
 
+    @property
+    def monitoring_enabled(self) -> bool:
+        """Whether the source's audio also plays on the monitoring device.
+
+        libobs 33.0 replaced the three monitoring types with this switch.
+        "Monitor only" is gone: a monitored source also reaches the outputs.
+        The monitor is fed before mixing, so ``source.audio_mixers = 0`` keeps
+        the source off the outputs while it stays audible on the monitor.
+        """
+        return bool(get_lib().obs_source_get_monitoring_enabled(self._ptr))
+
+    @monitoring_enabled.setter
+    def monitoring_enabled(self, value: bool) -> None:
+        get_lib().obs_source_set_monitoring_enabled(self._ptr, bool(value))
+
     # ------------------------------------------------------------------
     # Active / showing — render-state introspection
     # ------------------------------------------------------------------

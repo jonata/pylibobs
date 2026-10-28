@@ -56,7 +56,8 @@ jobs:
   # ------------------------------------------------------------------
   smoke-linux:
     name: Smoke / Linux (bundled libobs loads)
-    runs-on: ubuntu-latest
+    # OBS 33.0's libobs needs Ubuntu 26.04's FFmpeg 8 and glibc 2.43.
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4

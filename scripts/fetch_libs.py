@@ -45,7 +45,7 @@ GITHUB_API = f"https://api.github.com/repos/{REPO}/releases"
 #: disagrees with `obs_get_version`, so any custom module (solin-framesrc, a
 #: branded virtual-camera filter) must be built against THIS tag's headers and
 #: import lib. Tracking "latest" instead silently moves that target mid-build.
-DEFAULT_OBS_TAG = "32.2.2"
+DEFAULT_OBS_TAG = "33.0.0"
 LIBS_DIR   = Path(__file__).parent.parent / "pylibobs" / "_libs"
 
 # --------------------------------------------------------------------------
@@ -53,17 +53,24 @@ LIBS_DIR   = Path(__file__).parent.parent / "pylibobs" / "_libs"
 #   - asset_re:      regex matching the GitHub release asset filename
 #   - kind:          "zip" / "deb" / "dmg"
 #   - extract:       what to pull out (see _extract for the schema)
+#   - modules_prefix (zip): per-module plugin dirs, see _extract_zip_modules
+#   - moves:         dirs renamed after extraction, see _apply_moves
+#
+# OBS 33.0 moved its bundled plugins into "core modules": one core/<name>/ dir
+# per plugin on Windows, obs-modules/core/ on Linux. Both are flattened back
+# into the obs-plugins/ + data/obs-plugins/<name>/ layout pylibobs's loader
+# reads, so the loader does not depend on which OBS layout was fetched.
 # --------------------------------------------------------------------------
 ASSET_PATTERNS: dict[tuple[str, str], dict] = {
     ("windows", "x86_64"): {
         "asset_re": r"OBS-Studio-[\d.]+-Windows-x64\.zip$",
         "kind": "zip",
-        # Self-contained: extract bin/, data/, obs-plugins/
+        # Self-contained: extract bin/ and data/; plugins come from core/.
         "extract": {
             "bin/64bit/":         "",            # → _libs/.../
             "data/":              "data/",
-            "obs-plugins/64bit/": "obs-plugins/",
         },
+        "modules_prefix": "core/",
         "verify_file": "obs.dll",
     },
     ("windows", "arm64"): {
@@ -72,25 +79,30 @@ ASSET_PATTERNS: dict[tuple[str, str], dict] = {
         "extract": {
             "bin/64bit/":         "",
             "data/":              "data/",
-            "obs-plugins/64bit/": "obs-plugins/",
         },
+        "modules_prefix": "core/",
         "verify_file": "obs.dll",
     },
     ("linux", "x86_64"): {
         # OBS's Ubuntu .deb installs under /usr/local/ (CMake's default
         # CMAKE_INSTALL_PREFIX), not /usr/. Layout:
         #   usr/local/lib/x86_64-linux-gnu/libobs.so.0
-        #   usr/local/lib/x86_64-linux-gnu/obs-plugins/*.so
-        #   usr/local/share/obs/libobs/*.effect        (shader effects)
-        #   usr/local/share/obs/obs-plugins/*/         (plugin data)
-        # Recent releases ship several Ubuntu builds (24.04, 26.04, …). Pin the
-        # 24.04 LTS deb: it links the oldest glibc of the set, so the bundled
-        # binaries run on the widest range of distros.
-        "asset_re": r"OBS-Studio-[\d.]+-Ubuntu-24\.04-x86_64\.deb$",
+        #   usr/local/lib/x86_64-linux-gnu/obs-modules/core/*.so
+        #   usr/local/share/obs/libobs/*.effect           (shader effects)
+        #   usr/local/share/obs/obs-modules/core/*/       (plugin data)
+        # 32.x shipped 24.04 and 26.04 debs and we pinned 24.04 for its older
+        # glibc. 33.0 ships only the 26.04 deb, which links FFmpeg 8 and a newer
+        # glibc, so the bundle now needs a 26.04-era distro (the release
+        # workflow derives the wheel's manylinux tag from these binaries).
+        "asset_re": r"OBS-Studio-[\d.]+-Ubuntu-26\.04-x86_64\.deb$",
         "kind": "deb",
         "extract": {
             "usr/local/lib/x86_64-linux-gnu/":  "",
             "usr/local/share/obs/":             "data/",
+        },
+        "moves": {
+            "obs-modules/core":      "obs-plugins",
+            "data/obs-modules/core": "data/obs-plugins",
         },
         "verify_file": "libobs.so.0",
     },
@@ -174,6 +186,52 @@ def _extract_zip_tree(zip_path: Path, src_prefix: str, dst: Path) -> int:
                 shutil.copyfileobj(src, out_fh)
             n += 1
     return n
+
+
+def _extract_zip_modules(zip_path: Path, prefix: str, dst: Path) -> int:
+    """Flatten the per-module zip layout (OBS 33+) onto the obs-plugins one.
+
+    The zip ships ``<prefix><name>/<name>.dll`` with the module's data in
+    ``<prefix><name>/data/``. pylibobs's loader expects ``obs-plugins/<name>.dll``
+    and ``data/obs-plugins/<name>/``. Other files at a module's top level
+    (obs-browser's CEF runtime) go next to the DLL.
+    """
+    n = 0
+    with zipfile.ZipFile(zip_path) as zf:
+        for name in zf.namelist():
+            if not name.startswith(prefix) or name.endswith("/"):
+                continue
+            parts = name[len(prefix):].split("/")
+            if len(parts) < 2:
+                continue
+            module, rest = parts[0], parts[1:]
+            if rest[0] == "data" and len(rest) > 1:
+                out = dst / "data" / "obs-plugins" / module / Path(*rest[1:])
+            else:
+                out = dst / "obs-plugins" / Path(*rest)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(name) as src, open(out, "wb") as out_fh:
+                shutil.copyfileobj(src, out_fh)
+            n += 1
+    return n
+
+
+def _apply_moves(root: Path, moves: dict[str, str]) -> None:
+    """Rename directories under `root` (src → dst), pruning emptied parents."""
+    for src_rel, dst_rel in moves.items():
+        src, dst = root / src_rel, root / dst_rel
+        if not src.exists():
+            print(f"  [!] expected '{src_rel}' not found to move")
+            continue
+        if dst.exists():
+            shutil.rmtree(dst)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(src), str(dst))
+        print(f"    moved {src_rel} -> {dst_rel}")
+        parent = src.parent
+        while parent != root and parent.exists() and not any(parent.iterdir()):
+            parent.rmdir()
+            parent = parent.parent
 
 
 def _extract_deb_tree(deb_path: Path, src_prefix: str, dst: Path) -> int:
@@ -393,6 +451,10 @@ def fetch_for(plat: str, arch: str, release: dict, cache: Path) -> bool:
             n = _extract_zip_tree(archive, src_prefix, dst / sub)
             print(f"    +{n} files from {src_prefix} -> {sub or '.'}")
             total += n
+        if cfg.get("modules_prefix"):
+            n = _extract_zip_modules(archive, cfg["modules_prefix"], dst)
+            print(f"    +{n} files from {cfg['modules_prefix']}<module>/ -> obs-plugins/")
+            total += n
     elif kind == "deb":
         for src_prefix, sub in cfg["extract"].items():
             n = _extract_deb_tree(archive, src_prefix, dst / sub)
@@ -403,6 +465,8 @@ def fetch_for(plat: str, arch: str, release: dict, cache: Path) -> bool:
     else:
         print(f"  unsupported kind: {kind}")
         return False
+
+    _apply_moves(dst, cfg.get("moves", {}))
 
     # ----- Linux: make the bundle self-locating (see _set_linux_rpath) ---
     if plat == "linux":
@@ -480,6 +544,7 @@ _TRIM_GLOBS = [
     "**/snapshot_blob*", "**/v8_*",
     "**/icudtl.dat", "**/resources.pak", "**/chrome_*.pak",
     "**/Resources/locales",
+    "obs-plugins/locales",   # CEF .paks the Linux deb puts beside obs-browser.so
     # obs-vst (VST host — niche)
     "**/obs-vst*",
     # DeckLink (Blackmagic capture — requires their SDK driver)

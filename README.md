@@ -46,6 +46,11 @@ That's it on Windows / macOS / Linux. The wheel ships with **bundled libobs bina
 plus its plugin DLLs and data files, sourced from the official OBS Studio release on PyPI's
 build server). You don't need to install OBS Studio.
 
+**Linux:** OBS 33.0 is built for Ubuntu 26.04 only, so the Linux wheel needs a distro at least
+that new (glibc 2.43; the wheel is tagged `manylinux_2_43`). The bundled libobs links the
+system's shared libraries rather than shipping them — FFmpeg 8, PulseAudio, jansson and so on —
+so install those too; `sudo apt install obs-studio` on Ubuntu pulls in all of them.
+
 If you're installing from sdist (rare — only when no wheel is published for your platform), or
 you want to use a system-installed OBS, the loader falls back through:
 
@@ -59,7 +64,7 @@ Maintainers / contributors can refresh the bundled libs by running:
 ```bash
 python scripts/fetch_libs.py                  # current platform
 python scripts/fetch_libs.py --all            # every platform
-python scripts/fetch_libs.py --version 32.2.2 # pin OBS version
+python scripts/fetch_libs.py --version 33.0.0 # pin OBS version
 ```
 
 This downloads libobs from the official OBS GitHub release. The `_libs/` tree is `.gitignore`d
@@ -184,9 +189,9 @@ pylibobs/
 
 ## Coverage / known gaps
 
-`pylibobs` targets **libobs 32.2.2** and declares every function it exports (1384
+`pylibobs` targets **libobs 33.0.0** and declares every function it exports (1381
 `obs_*` / `gs_*` / `signal_*` / `proc_*` / `calldata_*` / `audio_output_*` / `video_output_*`
-symbols), reachable via `pylibobs._ffi.get_lib()`. 1157 of them carry their full C
+symbols), reachable via `pylibobs._ffi.get_lib()`. 1154 of them carry their full C
 signature; the remaining 227 are declared as `void f(void)` placeholders because
 `scripts/generate_cdef.py` cannot parse their headers yet — they resolve, but need a
 curated signature in `_declarations.py` before they can be called correctly.
@@ -195,7 +200,7 @@ Pythonic class-based wrappers cover the common workflows:
 - Lifecycle, video/audio init, scenes, sources, scene items, transforms (pos/scale/rot/crop/bounds)
 - Outputs (file + RTMP streaming), encoders (incl. ROI hints and `EncoderCaps`), services
 - Live preview (`Display` attached to a native window via HWND)
-- Filters, transitions, hotkeys, fader + VU meter, audio monitoring
+- Filters, transitions, hotkeys, fader + VU meter, audio monitoring (`Source.monitoring_enabled`, 33.0+)
 - Type lookups: display names, defaults, encoder capabilities, themed source icons (32.2+)
 - Raw audio/video callbacks (numpy-friendly), audio resampler, media remux
 - Properties API (read + edit, with type-aware widgets in `examples/pylibobs_studio.py`)
@@ -240,7 +245,7 @@ A release that only changes pylibobs, on the same libobs, adds a fourth number
 1. Set the same version in `pyproject.toml` and `pylibobs/__init__.py`; when moving to a new
    libobs, also update `DEFAULT_OBS_TAG` in `scripts/fetch_libs.py`.
    `python scripts/check_version.py` checks they agree.
-2. Tag the commit `v<version>` (e.g. `v32.2.2`) and push the tag. GitHub Actions:
+2. Tag the commit `v<version>` (e.g. `v33.0.0`) and push the tag. GitHub Actions:
    - Refuses to build unless the tag, both version strings and `DEFAULT_OBS_TAG` agree
    - Builds platform-specific wheels with bundled libobs (Windows x64 / Linux x86_64 / macOS Apple Silicon)
    - Builds the sdist
