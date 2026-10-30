@@ -90,6 +90,7 @@ def release_all_wrappers() -> None:
     from .transitions import Transition
     from .audio_mixer import VolumeMeter, Fader
     from .hotkeys import Hotkey
+    from .macos_camera import CameraOutput
 
     # Higher = release earlier. Anything unknown gets sorted last.
     # Hotkeys/Volmeter/Fader come BEFORE sources because they reference them.
@@ -98,6 +99,7 @@ def release_all_wrappers() -> None:
     _ORDER: dict[type, int] = {
         Display:       0,  # destroy displays first so the gfx ctx is idle
         Output:        1,
+        CameraOutput:  1,
         View:          2,  # after Output (its video_t feeds outputs), before sources
         VideoEncoder:  2,
         AudioEncoder:  2,

@@ -183,6 +183,24 @@ PyObjC solely to create its test window.
 
 ---
 
+### macOS camera sinks
+
+`pylibobs.macos_camera.CameraOutput(device_uid)` sends the initialized main video
+mix to an existing CoreMediaIO output stream. The device's vendor installs and
+enables its camera extension; the binding installs no camera and loads no
+frontend plugin. The sink must support dynamically described limited-range
+Rec.709 NV12 frames. Its native device UID is configuration supplied by the host.
+
+Use the output as a context manager or call `close()` before OBS shutdown.
+`frames_published`, `frames_consumed`, `frames_dropped`, and `last_error` expose
+delivery progress. Consumption means the camera service accepted a frame; it
+does not imply a conferencing application is capturing. A bounded pixel-buffer
+pool and the native stream queue discard excess production without reusing
+buffers still owned by downstream consumers. Frame bytes stay in native code.
+
+Use one producer for each destination. CoreMediaIO extensions control access;
+extensions that allow competing writers cannot provide exclusive delivery.
+
 ## Testing
 
 ```bash
@@ -200,6 +218,11 @@ DISPLAY=:99 pytest tests/integration -m integration
 ```
 
 CI runs the full matrix on Windows, Linux, and macOS — see `.github/workflows/ci.yml`.
+
+The camera-source pixel test requires macOS, an enabled idle camera extension,
+and `PYLIBOBS_TEST_CAMERA_UID` identifying its NV12-capable sink. It uses a
+separate CoreMediaIO reader to verify authored color changes through the actual
+camera source, including recovery after abrupt producer termination.
 
 ---
 

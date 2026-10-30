@@ -23,13 +23,13 @@ Together these produce wheels like:
     pylibobs-33.0.0-py3-none-macosx_11_0_arm64.whl
 """
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 from setuptools import setup
 from setuptools.dist import Distribution
 from setuptools.command.build_py import build_py as _BuildPy
-import sys
-import subprocess
 
 try:                              # setuptools >= 70
     from setuptools.command.bdist_wheel import bdist_wheel as _BdistWheel
@@ -58,65 +58,67 @@ def _has_bundled_libobs() -> bool:
     return any(path.is_file() for name in _LIBOBS_NAMES for path in libs.glob(f"*/*/{name}"))
 
 
-#: Set to 1 to fail the build, instead of warning, if the macOS helper won't compile.
+#: Set to 1 to fail the build, instead of warning, if a macOS helper won't compile.
 REQUIRE_NATIVE = "PYLIBOBS_REQUIRE_NATIVE"
 
 
 class BuildPy(_BuildPy):
-    _native_library = Path("native/macos_surfaces.dylib")
+    _bridges = {
+        "macos_surfaces": ("Cocoa", "IOSurface", "OpenGL"),
+        "macos_camera": ("Foundation", "CoreMediaIO", "CoreMedia", "CoreVideo"),
+    }
 
-    def _native_paths(self):
+    def _native_paths(self, name):
+        relative = Path("native") / f"{name}.dylib"
         package = Path(self.get_package_dir("pylibobs"))
-        return package / self._native_library, Path(self.build_lib) / "pylibobs" / self._native_library
+        return package / relative, Path(self.build_lib) / "pylibobs" / relative
 
     def get_outputs(self, include_bytecode=True):
         outputs = super().get_outputs(include_bytecode)
         if sys.platform == "darwin":
-            _, destination = self._native_paths()
-            if str(destination) not in outputs:
-                outputs.append(str(destination))
+            for name in self._bridges:
+                _, destination = self._native_paths(name)
+                if str(destination) not in outputs:
+                    outputs.append(str(destination))
         return outputs
 
     def get_output_mapping(self):
         mapping = super().get_output_mapping()
         if sys.platform == "darwin" and self.editable_mode:
-            source, destination = self._native_paths()
-            mapping[str(destination)] = str(source)
+            for name in self._bridges:
+                source, destination = self._native_paths(name)
+                mapping[str(destination)] = str(source)
         return mapping
 
     def run(self):
         super().run()
         if sys.platform == "darwin":
-            source, destination = self._native_paths()
-            # Editable imports resolve to the source package, including helpers.
-            if self.editable_mode:
-                destination = source
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            # Only pylibobs.macos_surfaces needs the helper, so by default a
-            # Mac without the Xcode command line tools still installs
-            # pylibobs, minus that module. CI and the release build set
-            # REQUIRE_NATIVE, which also turns warnings into errors there
-            # rather than in users' installs on a newer clang.
             strict = os.environ.get(REQUIRE_NATIVE) == "1"
-            try:
-                subprocess.check_call([
-                    "clang", "-dynamiclib", "-O2", "-Wall", "-Wextra",
-                    *(["-Werror"] if strict else []),
-                    "-Wno-deprecated-declarations", "-mmacosx-version-min=13.0",
-                    "-framework", "Cocoa", "-framework", "IOSurface", "-framework", "OpenGL",
-                    str(source.with_suffix(".m")), "-o", str(destination),
-                ])
-                subprocess.check_call(["codesign", "--force", "--sign", "-", str(destination)])
-            except (OSError, subprocess.CalledProcessError) as error:
-                if strict:
-                    raise
-                destination.unlink(missing_ok=True)
-                print(
-                    f"warning: pylibobs: could not build {self._native_library} ({error}); "
-                    "pylibobs.macos_surfaces will be unavailable. Install the Xcode "
-                    "command line tools (xcode-select --install) and reinstall to enable it.",
-                    file=sys.stderr,
-                )
+            for name, frameworks in self._bridges.items():
+                source, destination = self._native_paths(name)
+                if self.editable_mode:
+                    destination = source
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                flags = ["-Wno-deprecated-declarations"] if name == "macos_surfaces" else []
+                try:
+                    subprocess.check_call([
+                        "clang", "-dynamiclib", "-O2", "-Wall", "-Wextra",
+                        *(["-Werror"] if strict else []),
+                        "-mmacosx-version-min=13.0", *flags,
+                        *(flag for framework in frameworks for flag in ("-framework", framework)),
+                        str(source.with_suffix(".m")), "-o", str(destination),
+                    ])
+                    subprocess.check_call(["codesign", "--force", "--sign", "-", str(destination)])
+                except (OSError, subprocess.CalledProcessError) as error:
+                    if strict:
+                        raise
+                    destination.unlink(missing_ok=True)
+                    print(
+                        f"warning: pylibobs: could not build {source.name} ({error}); "
+                        f"pylibobs.{name} will be unavailable. Install the Xcode "
+                        "command line tools (xcode-select --install) and reinstall to enable it.",
+                        file=sys.stderr,
+                    )
 
 
 class BdistWheel(_BdistWheel):
