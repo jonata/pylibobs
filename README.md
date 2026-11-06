@@ -368,7 +368,7 @@ A release that only changes pylibobs, on the same libobs, adds a fourth number
    `python scripts/check_version.py` checks they agree.
 2. Tag the commit `v<version>` (e.g. `v33.0.0`) and push the tag. GitHub Actions:
    - Refuses to build unless the tag, both version strings and `DEFAULT_OBS_TAG` agree
-   - Builds platform-specific wheels with bundled libobs (Windows x64 / Linux x86_64 / macOS Apple Silicon)
+   - Builds platform-specific wheels with bundled libobs (Windows x64 / Linux x86_64 / macOS Intel and Apple Silicon)
    - Builds the sdist
    - Publishes to PyPI via [Trusted Publishing](https://docs.pypi.org/trusted-publishers/) (no token needed in repo secrets)
    - Attaches all wheels to a GitHub Release with auto-generated notes
